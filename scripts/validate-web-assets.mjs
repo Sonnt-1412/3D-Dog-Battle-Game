@@ -1,11 +1,15 @@
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PLAYABLE_IDS } from '../web/roster.mjs';
 
 const publicRoot = process.argv[2] ? resolve(process.argv[2])
   : fileURLToPath(new URL('../public/', import.meta.url));
 const catalog = JSON.parse(await readFile(resolve(publicRoot, 'catalog.json'), 'utf8'));
 if (!catalog.dogs.length || !catalog.types.length) throw new Error('The web catalog is empty');
+if (catalog.dogs.length !== PLAYABLE_IDS.length || !PLAYABLE_IDS.every(id => catalog.dogs.some(dog => dog.id === id))) {
+  throw new Error('The game catalog must contain exactly the 10 playable dogs');
+}
 const ids = new Set();
 let total = 0;
 for (const dog of catalog.dogs) {

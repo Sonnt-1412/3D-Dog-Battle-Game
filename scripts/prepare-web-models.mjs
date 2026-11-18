@@ -8,6 +8,7 @@ import { ALL_EXTENSIONS, EXTTextureWebP } from '@gltf-transform/extensions';
 import { dedup, resample, meshopt } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
 import sharp from 'sharp';
+import { PLAYABLE_IDS } from '../web/roster.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = resolve(root, 'public/models');
@@ -18,7 +19,8 @@ if (!(limit > 0)) throw new Error('--limit must be a positive integer');
 
 const base = JSON.parse(await readFile(resolve(root, 'dog_catalog.json'), 'utf8'));
 const custom = JSON.parse(await readFile(resolve(root, 'custom_catalog.json'), 'utf8'));
-const dogs = [...base.dogs, ...custom.dogs].slice(0, limit);
+const dogs = PLAYABLE_IDS.map(id => base.dogs.find(dog => dog.id === id)).slice(0, limit);
+if (dogs.some(dog => !dog)) throw new Error('A playable dog is missing from the original catalog');
 const customIds = new Set(custom.dogs.map(dog => dog.id));
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({
   'meshopt.encoder': MeshoptEncoder, 'meshopt.decoder': MeshoptDecoder,
@@ -76,7 +78,7 @@ if (Number.isFinite(limit)) {
   console.log('Sample only; catalog.json was not replaced.');
 } else {
   await writeFile(resolve(root, 'public/catalog.json'), JSON.stringify({
-    version: 1, types: base.types, dogs: exported,
+    version: 2, types: base.types.filter(type => PLAYABLE_IDS.includes(type.id)), dogs: exported,
     export: { settings, originalBytes, webBytes },
   }) + '\n');
   await mkdir(resolve(root, 'public/licenses'), { recursive: true });

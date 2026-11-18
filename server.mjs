@@ -72,6 +72,6 @@ export function createStaticServer(directory) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const port = Number(process.env.PORT || 18080);
   const server = createStaticServer(fileURLToPath(new URL('./dist/', import.meta.url)));
-  server.listen(port, '0.0.0.0', () => console.log(`Dog Motion Lab: http://localhost:${server.address().port}`));
+  server.listen(port, '0.0.0.0', () => console.log(`Pawtown: http://localhost:${server.address().port}`));
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => server.close());
 }

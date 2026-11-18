@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { NodeIO, Logger } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { MeshoptDecoder } from 'meshoptimizer';
 
 const root = fileURLToPath(new URL('../public/', import.meta.url));
 const catalog = JSON.parse(await readFile(resolve(root, 'catalog.json'), 'utf8'));
