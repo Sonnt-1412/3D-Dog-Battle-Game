@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f5f0">
+  <meta name="description" content="Explore the Dog Motion Lab: a collection of animated dog models, body shapes and life stages.">
+  <title>Dog Motion Lab</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/main.mjs"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Dog Motion Lab home"><span class="brand-mark">d.</span><span>DOG MOTION LAB<small>A collection of companions</small></span></a>
+    <span class="collection-tag"><span></span> THE MODEL LIBRARY</span>
+  </header>
+  <main>
+    <div class="page-heading"><div><p class="eyebrow">MEET THE COLLECTION</p><h1>Every dog has a little character.</h1><p class="intro">Find a familiar face. Explore their shape, size, and motion.</p></div><p id="collection-count" class="collection-count">Loading collection…</p></div>
+    <div class="workspace">
+      <aside class="library" aria-label="Model library">
+        <div class="library-heading"><h2>Your companions</h2><span id="result-count"></span></div>
+        <label class="search"><span class="sr-only">Search dogs</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input id="search" type="search" placeholder="Search the collection" autocomplete="off"></label>
+        <div class="tabs" aria-label="Collection filter"><button id="all-models" aria-pressed="true">All models</button><button id="saved-models" aria-pressed="false">Saved models</button></div>
+        <div class="filters"><label>Breed<select id="type"><option value="">All breeds</option></select></label><label>Life stage<select id="stage"><option value="">All stages</option><option value="adult">Adult</option><option value="puppy">Puppy</option><option value="juvenile">Juvenile</option></select></label></div>
+        <div id="dog-list" class="dog-list" aria-label="Available dogs"></div>
+        <p id="empty" class="empty" hidden>No companions match these filters.</p>
+      </aside>
+      <section class="preview" aria-labelledby="model-name">
+        <div class="preview-heading"><div><p id="model-kind" class="eyebrow">THE COLLECTION</p><h2 id="model-name">Choose your companion</h2><p id="model-variant">Animated model</p></div><span id="stage-badge" class="badge">3D PREVIEW</span></div>
+        <div class="stage">
+          <model-viewer id="viewer" camera-controls disable-pan touch-action="pan-y" shadow-intensity="1" shadow-softness="0.8" exposure="1" environment-image="neutral" camera-orbit="35deg 78deg auto" interaction-prompt="none" alt="Selected animated dog model"></model-viewer>
+          <div id="loading" class="loading" role="status"><span id="loading-label">Preparing the collection…</span><progress id="progress" max="1" value="0"></progress></div>
+          <div id="error" class="error" role="alert" hidden><p id="error-message">This model could not be loaded.</p><button id="retry">Try again</button></div>
+          <span class="orbit-hint">DRAG TO ORBIT <span>·</span> SCROLL TO ZOOM</span>
+        </div>
+        <div class="playback"><label>Motion<select id="animation" disabled><option>Idle</option></select></label><button id="play" class="primary" disabled>Pause</button><label class="speed">Speed<select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><button id="rotate" aria-pressed="false">Auto rotate</button><button id="reset">Reset view</button></div>
+      </section>
+    </div>
+    <footer><span>Made for a closer look.<span class="footer-dot"> · </span>Procedural models, full of character.</span><a href="/licenses/index.html" target="_blank" rel="noopener">Credits &amp; licenses ↗</a></footer>
+  </main>
+  <noscript>This model library needs JavaScript enabled to display the animated dogs.</noscript>
+</body>
+</html>
