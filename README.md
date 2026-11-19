@@ -1,34 +1,44 @@
-# Pawtown — Khu phố đuôi vẫy
+# Pawtown — Sau nửa đêm
 
-Một game 3D trên trình duyệt: chọn một trong **10 loại chó**, vào khu phố và trực
-tiếp điều khiển bạn chó đó. Thế giới có quảng trường, đài phun nước, hồ, quán nhỏ,
-cây xanh, chó đi dạo và **8 cư dân NPC** có thể chào hỏi.
+Game sinh tồn 3D trên trình duyệt với **10 chó chơi được**. Khám phá một thị trấn
+mưa đêm, tìm thức ăn và trở về mái hiên. Trong 8 cư dân NPC có **3 người gác**:
+họ chú ý khi bạn đến gần hoặc gây tiếng động, truy đuổi và có thể ném đá hoặc
+xô bạn. Những cư dân còn lại có thể chỉ đường và đưa lời khuyên.
 
-Bản hiện tại là một thế giới mô phỏng chạy trên máy người chơi. NPC và các bạn chó
-đi dạo do game điều khiển. Game chưa có kết nối nhiều người chơi trực tuyến.
-Không cần database, tài khoản hay API key.
+Đòn đánh có động tác chuẩn bị và vòng báo trên đất. Rời vòng đó, né quanh vật
+cản, nhảy đúng lúc hoặc chạy khỏi tầm nhìn. Bản đồ đánh dấu người gác và các
+vùng trú màu xanh. Trong vùng trú, truy đuổi dừng lại và **E** hồi thể lực.
+Không có hình ảnh máu hay thương tích trực diện.
+
+Bản hiện tại là mô phỏng một người chơi, không cần database, tài khoản hay API
+key. NPC được điều khiển cục bộ; chưa có kết nối người chơi trực tuyến.
 
 ## Chơi
 
 1. Chọn Phú Quốc, H’Mông cộc, Corgi, Shiba, Golden, Husky, Labrador, Pug,
-   Chihuahua hoặc Bắc Hà.
-2. Bấm **Vào khu phố** để điều khiển chính bạn chó vừa chọn.
-3. Làm quen với 3 cư dân và nhặt bánh thưởng trong lúc khám phá.
+   Chihuahua hoặc Bắc Hà, rồi bấm **Bước vào đêm**.
+2. Thu thập **3 phần thức ăn** và mang về một trong hai vùng trú.
+3. Quan sát người gác. Tiếng sủa và chạy nhanh làm bạn dễ bị phát hiện hơn.
 
 | Điều khiển | Hành động |
 | --- | --- |
 | WASD / phím mũi tên | Di chuyển theo hướng camera |
-| Shift | Giữ để chạy nhanh, tiêu hao năng lượng |
-| Space | Nhảy |
-| E | Chào cư dân gần nhất |
-| B | Sủa; cư dân gần đó sẽ phản ứng |
+| Shift | Chạy nhanh, tiêu hao năng lượng |
+| Space | Nhảy; có thể tránh đòn thấp nếu đúng nhịp |
+| E | Nghỉ trong vùng trú / nghe cư dân thân thiện |
+| B | Sủa; có thể thu hút người gác ở gần |
 | Kéo chuột | Xoay camera |
 | Cuộn chuột | Zoom camera |
 | Esc | Tạm dừng / tiếp tục |
 
-Trên điện thoại có joystick và các nút chạy, nhảy, sủa, chào hỏi. Trong menu tạm
-dừng có thể đổi sang chó khác. Trò chơi nhớ lựa chọn bằng localStorage nếu trình
-duyệt cho phép. URL `?dog=corgi` mở màn chọn với Corgi được chọn sẵn.
+Có 3 mức thể lực, khoảng miễn sát thương ngắn sau khi trúng đòn và nút thử lại
+khi bị dồn vào góc. Thử lại đưa chó về mái hiên, hồi thể lực và xóa các đòn ném
+cũ. Có thể nghỉ lại sau 8 giây. Màn hình cảnh báo giúp phân biệt đang bị chú ý,
+bị truy đuổi và chuẩn bị trúng đòn.
+
+Điện thoại có joystick và các nút chạy, nhảy, sủa, tương tác. Menu tạm dừng cho
+phép đổi chó. Lựa chọn được nhớ bằng localStorage nếu trình duyệt cho phép;
+URL `?dog=corgi` mở Corgi được chọn sẵn.
 
 ## Docker
 
@@ -72,10 +82,13 @@ Docker đóng gói cùng game đó để chạy local hoặc tự host. Không c
 
 - `web/roster.mjs`: 10 nhân vật chơi được, mô tả và thông số gameplay.
 - `web/main.mjs`: màn chọn chó, HUD, joystick, bản đồ và hội thoại.
-- `web/game/engine.mjs`: vòng lặp game, camera, input và hoạt ảnh chó.
+- `web/game/engine.mjs`: mô phỏng 60 Hz, camera, input, đòn ném và vòng sinh tồn.
+- `web/game/animation.mjs`: blend Idle/Walk/Trot/Gallop, đồng bộ pha và cử chỉ.
+- `web/game/threats.mjs`: phát hiện, truy đuổi, chuẩn bị đòn và tìm kiếm mục tiêu.
+- `web/game/weather.mjs`: mưa và texture nền tạo bằng code.
 - `web/game/physics.mjs`: chuyển động, va chạm, năng lượng và khoảng cách tương tác.
 - `web/game/world.mjs`: môi trường 3D tạo bằng hình học, không tải cảnh từ dịch vụ ngoài.
-- `web/game/residents.mjs`: cư dân, đường đi, cử chỉ và lời chào NPC.
+- `web/game/residents.mjs`: cư dân, tuần tra, cử động và cảnh báo đòn đánh.
 - `web/game/assets.mjs`: tải/clone chó có skeleton và quản lý cache tài nguyên.
 - `public/`: chỉ 10 model dành cho game, metadata và thông báo nguồn tài sản.
 - `scripts/`: build, kiểm tra, tạo model web và các test Node.
@@ -85,7 +98,10 @@ Docker đóng gói cùng game đó để chạy local hoặc tự host. Không c
 
 10 model web sử dụng Meshopt, hoạt ảnh đã tối ưu và texture WebP 1024px; tổng
 khoảng **34 MB**, cả bản build khoảng **35 MB**. Game tải chó đang chọn và hai
-chó đi dạo, thay vì tải cả bộ sưu tập. Three.js và decoder đều được phục vụ từ
+chó đi dạo, thay vì tải cả bộ sưu tập. Gait được blend theo tốc độ và chiều cao,
+cùng pha bước chân; các clip không dùng được tắt để giảm việc cập nhật skeleton.
+Mô phỏng chạy ở 60 Hz, còn render và animation theo nhịp màn hình. HUD cập nhật
+khoảng 12 lần/giây để giảm tạo object và thao tác DOM. Three.js và decoder đều được phục vụ từ
 chính ứng dụng.
 
 Bộ 294 model gốc và 23 model tùy chỉnh của ứng dụng desktop vẫn giữ trên máy
@@ -114,8 +130,8 @@ npm run build
 node scripts/check-web-models.mjs
 ```
 
-Các test Node kiểm tra roster 10 chó, chuyển động theo camera, tính độc lập tốc độ
-khung hình, va chạm, năng lượng, khoảng cách NPC và server HTTP. Bộ kiểm tra model
+Các test Node kiểm tra roster, chuyển động, va chạm, năng lượng, blend animation,
+phát hiện/truy đuổi, khóa mục tiêu, nơi trú, đòn ném và server HTTP. Bộ kiểm tra model
 giải nén cả 10 file và xác nhận skeleton 80 khớp, các clip di chuyển và dữ liệu mesh.
 
 Trên máy authoring vẫn có thể chạy test Python cho dữ liệu gốc:
