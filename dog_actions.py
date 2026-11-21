@@ -7,7 +7,6 @@ from panda3d.core import (Geom, GeomNode, GeomTriangles, GeomVertexData,
 
 class PeeAction:
     duration=4.6
-
     def __init__(self,game):
         self.game=game
         self.active=False
