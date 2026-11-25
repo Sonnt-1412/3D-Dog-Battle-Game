@@ -48,9 +48,9 @@ await writeFile(resolve(dist, 'licenses/index.html'), `<!doctype html>
 <title>Credits &amp; licenses — Pawtown</title>
 <body style="max-width:720px;margin:60px auto;padding:24px;font:16px/1.7 system-ui;color:#294d3b">
 <a href="/">← Back to Pawtown</a><h1>Credits &amp; licenses</h1>
-<ul><li><a href="FOREST_ASSETS.html">Pine trail environment sources</a></li>
+<ul><li><a href="FOREST_ASSETS.html">River valley environment sources</a></li>
 <li><a href="LABRADOR_SOURCE.txt">Labrador source model usage notice</a></li>
 <li><a href="DEPENDENCIES.txt">Game engine and decoder dependencies</a></li></ul>
 <p>Models are included for use in this application. Source-model redistribution restrictions still apply.</p></body></html>`);
 await writeFile(resolve(dist, 'healthz'), 'ok\n');
-console.log('Built dist/: Pawtown, pine trail, H’Mông cộc and local engine.');
+console.log('Built dist/: Pawtown, river valley, H’Mông cộc and local engine.');

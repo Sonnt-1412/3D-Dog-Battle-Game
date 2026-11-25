@@ -1,25 +1,28 @@
 # Pawtown architecture
 
-The pine trail uses a resampled SRTM elevation grid from the Bidoup area.
-`terrain.mjs` samples the same triangles that `world.mjs` renders, so the
-dog, props and chase camera share the surface. The trail follows editable
-waypoints. Trees and rocks use simple colliders.
+`terrain.mjs` defines a continuous river valley with a resampled elevation
+patch from Bidoup around the opening settlement. Beyond that region, terrain,
+tributaries and smaller settlements are generated from world coordinates.
+`world.mjs` reuses a pool of 25 terrain chunks, each 48 metres wide. The inner
+ring is ready when crossing a boundary. The outer ring is filled one chunk per
+frame, underneath the distance haze. Render coordinates are recentered at
+each chunk boundary while the simulation keeps world coordinates.
 
-`engine.mjs` runs movement at 60 fixed steps per second and interpolates the
-render position. The chase camera orbits the dog, zooms on desktop and shortens
-its reach near hills and foliage. Rendering aims for 60 Hz while playing and
-24 Hz on the opening screen. The pixel budget is lower on touch devices and
-reduces further when sustained frame times rise.
+The terrain mesh and locomotion share a triangular height field. Each loaded
+chunk supplies the height samples used by physics. Boats and wildlife have
+bounded instance counts. Water is rendered as an animated strip along each
+channel. Fish appear below its transparent surface. The dog can wade or swim
+between banks. `village.mjs` defines traversable bridges, house floors and
+stairs alongside wall and post collision shapes.
 
-The map uses imported models and photos with WebP textures and Meshopt geometry.
-Repeated plants and props use GPU instancing. Distant spruce trees use rendered
-impostors, and the renderer culls understory beyond its useful distance.
-Sun shadows are rendered once at load. A contact shadow follows the dog in
-the terrain shader. The existing dog animation shares a distance-driven gait
-phase and uses a one-shot bark clip.
+The engine runs movement at 60 fixed steps per second and interpolates render
+positions. The third-person camera shortens its reach around obstacles. Plants
+and houses use GPU instancing. Distant foliage uses lower-detail meshes or
+rendered impostors. Sun shadows refresh when the chunk origin changes, and
+frame-time sampling controls the drawing-buffer resolution.
 
-`npm run build` verifies the fingerprinted local assets and copies them into
-`dist/`. The map adds 1.28 MB of model and texture data. The browser loads
-the environment and dog in parallel from the same origin. The same output
-works with Vercel, Docker or the local Node server. See
-[environment sources](public/licenses/FOREST_ASSETS.html) for the original assets.
+The 1.82 MB environment package uses imported models and surface photography
+with WebP textures and Meshopt geometry. `npm run build` verifies content
+fingerprints and copies the local assets into `dist/`. The static output works
+with Vercel, Docker and the Node server. See
+[environment sources](public/licenses/FOREST_ASSETS.html).

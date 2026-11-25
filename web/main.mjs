@@ -117,7 +117,7 @@ async function boot() {
       return dogs[0];
     });
     await game.load(dog);
-    get('start-label').textContent = 'Vào rừng';
+    get('start-label').textContent = 'Vào bản';
     start.disabled = false;
   } catch (error) {
     console.error(error);

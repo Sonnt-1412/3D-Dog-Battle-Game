@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { loadDog } from './assets.mjs';
-import { cameraReach, damping, integrateVelocity, moveOnStage, movementIntent, turnTo, updateStamina } from './physics.mjs';
+import { cameraReach, damping, integrateVelocity, moveInWorld, movementIntent, turnTo, updateStamina } from './physics.mjs';
 import { SPAWN } from './terrain.mjs';
-import { addForestLighting, loadForest } from './world.mjs';
+import { addValleyLighting, loadValley } from './world.mjs';
 
 const STEP = 1 / 60;
 const PLAY_INTERVAL = STEP * 1000;
@@ -44,8 +44,8 @@ export class Pawtown {
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.needsUpdate = true;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(51, 1, 0.07, 105);
-    addForestLighting(this.scene, this.mobile);
+    this.camera = new THREE.PerspectiveCamera(51, 1, 0.07, 129);
+    this.sun = addValleyLighting(this.scene, this.mobile);
 
     this.bindInput();
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -61,22 +61,22 @@ export class Pawtown {
   }
 
   async load(dog) {
-    [this.actor, this.forest] = await Promise.all([
+    [this.actor, this.world] = await Promise.all([
       Promise.resolve(dog).then(loadDog),
-      loadForest(this.scene, this.mobile),
+      loadValley(this.scene, this.mobile),
     ]);
     this.actor.root.rotation.order = 'YXZ';
     this.actor.root.traverse(part => {
       if (!part.isMesh) return;
       part.receiveShadow = true;
-      part.material.envMap = this.forest.environment;
+      part.material.envMap = this.world.environment;
       part.material.envMapIntensity = 0.72;
       if (part.material.name.includes('detailed coat')) {
         part.material.color.multiplyScalar(1.24);
       }
     });
     this.scene.add(this.actor.root);
-    this.invalidated = true;
+    this.reset();
   }
 
   resize() {
@@ -92,19 +92,22 @@ export class Pawtown {
   }
 
   reset() {
-    this.position.set(SPAWN.x, 0, SPAWN.z);
+    this.position.set(SPAWN.x, this.world?.surfaceAt(SPAWN.x, SPAWN.z).floor ?? 0, SPAWN.z);
     this.previousPosition.copy(this.position);
     this.renderPosition.copy(this.position);
     this.velocityX = 0;
     this.velocityZ = 0;
     this.verticalSpeed = 0;
+    this.grounded = true;
+    this.waterDepth = 0;
+    this.lift = 0;
     this.distanceSpeed = 0;
     this.stamina = 1;
     this.exhausted = false;
     this.sprinting = false;
     this.yaw = 0;
-    this.pitch = 0.19;
-    this.zoom = 4.35;
+    this.pitch = 0.25;
+    this.zoom = 4.65;
     this.cameraYaw = this.yaw;
     this.cameraPitch = this.pitch;
     this.cameraZoom = this.zoom;
@@ -147,7 +150,8 @@ export class Pawtown {
   }
 
   jump() {
-    if (this.mode !== 'playing' || this.position.y > 0 || this.verticalSpeed > 0) return;
+    if (this.mode !== 'playing' || !this.grounded || this.waterDepth > 0.55) return;
+    this.grounded = false;
     this.verticalSpeed = 4.6;
   }
 
@@ -207,15 +211,17 @@ export class Pawtown {
     }, this.cameraYaw);
     if (this.stamina < 0.015) this.exhausted = true;
     if (this.stamina > 0.28) this.exhausted = false;
-    const running = !this.exhausted && (this.touchSprint || keys.has('ShiftLeft') || keys.has('ShiftRight'));
-    const speed = WALK_SPEED * (running ? 1.65 : 1) * intent.strength;
+    const wading = this.grounded && this.waterDepth > 0.13;
+    const running = !wading && !this.exhausted && (this.touchSprint || keys.has('ShiftLeft') || keys.has('ShiftRight'));
+    const current = wading ? Math.max(0.41, 1 - this.waterDepth * 0.63) : 1;
+    const speed = WALK_SPEED * (running ? 1.65 : 1) * intent.strength * current;
 
     this.previousPosition.copy(this.position);
     const x = integrateVelocity(this.velocityX, intent.x * speed, 12, dt);
     const z = integrateVelocity(this.velocityZ, intent.z * speed, 12, dt);
     this.velocityX = x.value;
     this.velocityZ = z.value;
-    moveOnStage(this.position, x.distance, z.distance, this.forest.colliders);
+    moveInWorld(this.position, x.distance, z.distance, this.world.colliders);
     const movedX = this.position.x - this.previousPosition.x;
     const movedZ = this.position.z - this.previousPosition.z;
     this.distanceSpeed = Math.hypot(movedX, movedZ) / dt;
@@ -223,11 +229,17 @@ export class Pawtown {
     this.stamina = updateStamina(this.stamina, this.sprinting, this.distanceSpeed > 0.15, dt, 1.2);
     if (this.distanceSpeed > 0.15) this.heading = turnTo(this.heading, Math.atan2(movedX, movedZ), 14, dt);
 
-    if (this.verticalSpeed || this.position.y > 0) {
+    const surface = this.world.surfaceAt(this.position.x, this.position.z, this.position.y + 0.34);
+    this.waterDepth = surface.depth;
+    if (this.grounded && this.position.y - surface.floor <= 0.30) {
+      this.position.y = surface.floor;
+    } else {
       this.verticalSpeed -= 15 * dt;
-      this.position.y = Math.max(0, this.position.y + this.verticalSpeed * dt);
-      if (!this.position.y) this.verticalSpeed = 0;
+      this.position.y = Math.max(surface.floor, this.position.y + this.verticalSpeed * dt);
+      this.grounded = this.position.y === surface.floor;
+      if (this.grounded) this.verticalSpeed = 0;
     }
+    this.lift = Math.max(0, this.position.y - surface.floor);
   }
 
   updateCamera(dt) {
@@ -236,8 +248,9 @@ export class Pawtown {
     const height = this.actor.height;
     let desiredFov;
     if (this.mode === 'intro') {
-      camera.position.set(position.x + 1.25, position.y + 1.02, position.z + 2.85);
-      camera.lookAt(position.x, position.y + (camera.aspect < 1 ? 0.22 : 0.67), position.z - 0.65);
+      camera.position.set(position.x + 1.85, position.y + 1.52, position.z + 3.05);
+      camera.position.y = Math.max(camera.position.y, this.world.heightAt(camera.position.x, camera.position.z) + 0.62);
+      camera.lookAt(position.x + 0.1, position.y + (camera.aspect < 1 ? 0.64 : 1.06), position.z - 0.85);
       if (camera.aspect > 1.12) {
         this.cameraRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
         camera.position.addScaledVector(this.cameraRight, -0.45 * Math.min(camera.aspect, 2.4));
@@ -255,7 +268,7 @@ export class Pawtown {
       this.cameraTarget.set(position.x, position.y + height * 0.80, position.z);
       this.cameraOffset.set(Math.sin(this.cameraYaw) * distance, Math.sin(pitch) * range,
         Math.cos(this.cameraYaw) * distance);
-      const { heightAt, colliders } = this.forest;
+      const { heightAt, colliders } = this.world;
       let reach = cameraReach(this.cameraTarget, this.cameraOffset, heightAt, colliders);
       if (reach * range < 1.25) {
         for (const yaw of [-0.62, 0.62, -1.15, 1.15]) {
@@ -280,7 +293,6 @@ export class Pawtown {
       camera.fov = fov;
       camera.updateProjectionMatrix();
     }
-    this.forest.sky.position.copy(camera.position);
   }
 
   frame(time) {
@@ -294,6 +306,7 @@ export class Pawtown {
     this.nextFrame = this.invalidated ? time + interval : Math.max(time - interval * 0.5, this.nextFrame) + interval;
     const dt = this.lastTime === null ? STEP : Math.min(0.1, (time - this.lastTime) / 1000);
     this.lastTime = time;
+    let shifted = this.world.sync(this.position.x, this.position.z);
 
     if (this.mode === 'playing') {
       this.accumulator += dt;
@@ -309,22 +322,28 @@ export class Pawtown {
       }
       this.adjustResolution(dt);
     }
-    const jumpHeight = this.renderPosition.y;
-    this.renderPosition.y += this.forest.heightAt(this.renderPosition.x, this.renderPosition.z);
+    shifted = this.world.sync(this.position.x, this.position.z) || shifted;
+    if (shifted) {
+      this.renderer.shadowMap.needsUpdate = true;
+      this.sun.shadow.needsUpdate = true;
+    }
+    const { origin, shadow, sky } = this.world;
     const heading = this.mode === 'intro' ? PREVIEW_HEADING : this.heading;
-    this.actor.root.position.copy(this.renderPosition);
+    this.actor.root.position.copy(this.renderPosition).sub(origin);
     this.actor.root.rotation.y = heading;
     if (this.mode !== 'paused') {
       const tilt = THREE.MathUtils.clamp(-this.verticalSpeed * 0.045, -0.22, 0.22);
       this.actor.root.rotation.x = THREE.MathUtils.lerp(this.actor.root.rotation.x, tilt, damping(16, dt));
       this.actor.animation.update(dt, this.distanceSpeed);
     }
-    this.forest.shadow.position.copy(this.renderPosition);
-    this.forest.shadow.forward.set(Math.sin(heading), Math.cos(heading));
-    this.forest.shadow.lift = jumpHeight;
+    shadow.position.copy(this.actor.root.position);
+    shadow.forward.set(Math.sin(heading), Math.cos(heading));
+    shadow.lift = this.lift;
     this.updateCamera(dt);
-    this.renderPosition.y = jumpHeight;
-    this.forest.updateDetail(this.camera.position);
+    this.world.update(this.camera.position, this.renderPosition, this.mode === 'paused' ? 0 : dt,
+      this.grounded && this.waterDepth > 0.18);
+    this.camera.position.sub(origin);
+    sky.position.copy(this.camera.position);
     this.invalidated = false;
     this.renderer.render(this.scene, this.camera);
   }

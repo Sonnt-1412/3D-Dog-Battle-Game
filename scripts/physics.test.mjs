@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cameraReach, movementIntent, moveOnStage, integrateVelocity, turnTo,
-  updateStamina, STAGE_RADIUS } from '../web/game/physics.mjs';
-import { SPAWN, TERRAIN_GRID, TERRAIN_HALF, terrainSampler } from '../web/game/terrain.mjs';
+import { cameraReach, movementIntent, moveInWorld, integrateVelocity, turnTo,
+  updateStamina } from '../web/game/physics.mjs';
+import {
+  CHUNK_SIZE, SPAWN, TERRAIN_GRID, TERRAIN_HALF, chunkWindow, makeLandscape, riverZ, streamX, terrainSampler, waterAt,
+} from '../web/game/terrain.mjs';
+import { HOUSE, crossingHeight, houseColliders, villageForChunk, villageSupport } from '../web/game/village.mjs';
 
 test('movement remains relative to the camera and diagonal movement is normalized', () => {
   const forward = movementIntent({ x: 0, z: 1 }, 0);
@@ -26,31 +29,69 @@ test('acceleration and travel distance agree across rendering frame rates', () =
   for (const run of runs) assert.ok(Math.abs(run.distance - runs[0].distance) < 1e-9);
 });
 
-test('the player can move freely inside the stage and slide along its circular perimeter', () => {
+test('movement keeps world coordinates beyond the former stage and through negative chunks', () => {
   const position = { x: 0, y: 0.7, z: 0 };
-  moveOnStage(position, 2, 3);
+  moveInWorld(position, 2, 3);
   assert.deepEqual(position, { x: 2, y: 0.7, z: 3 });
-
-  position.x = STAGE_RADIUS;
-  position.z = 0;
-  moveOnStage(position, 1, 2);
-  assert.ok(Math.abs(Math.hypot(position.x, position.z) - STAGE_RADIUS) < 1e-10);
-  assert.ok(position.z > 1.9);
-  assert.equal(position.y, 0.7);
-  moveOnStage(position, -1, 0);
-  assert.ok(Math.hypot(position.x, position.z) < STAGE_RADIUS);
+  position.x = -8000;
+  position.z = 1200;
+  moveInWorld(position, -1, 2);
+  assert.deepEqual(position, { x: -8001, y: 0.7, z: 1202 });
 });
 
 test('the dog slides around a prop and can jump over low rocks', () => {
   const obstacle = { x: 0, z: 0, radius: 0.78, height: 0.45 };
   const position = { x: -1.25, y: 0, z: 0.2 };
-  moveOnStage(position, 0.5, 0.25, [obstacle]);
+  moveInWorld(position, 0.5, 0.25, [obstacle]);
   assert.ok(Math.hypot(position.x, position.z) >= 1.04);
   assert.ok(position.z > 0.45);
 
   position.y = 0.5;
-  moveOnStage(position, -position.x, -position.z, [obstacle]);
+  moveInWorld(position, -position.x, -position.z, [obstacle]);
   assert.deepEqual(position, { x: 0, y: 0.5, z: 0 });
+});
+
+test('nearby chunks follow the player while keeping the same finite window', () => {
+  const previous = chunkWindow(CHUNK_SIZE - 0.01, -0.01);
+  const next = chunkWindow(CHUNK_SIZE + 0.01, -0.01);
+  assert.equal(previous.length, 25);
+  assert.equal(next.length, 25);
+  assert.deepEqual(next[0], { x: 1, z: -1, range: 0, rank: 0 });
+  const keys = new Set(previous.map(tile => `${tile.x}:${tile.z}`));
+  assert.equal(next.filter(tile => keys.has(`${tile.x}:${tile.z}`)).length, 20);
+  assert.ok(chunkWindow(-10_000, 20_000).every(tile => tile.x < -200 && tile.z > 410));
+});
+
+test('river and tributary surfaces sit above the continuous terrain bed', () => {
+  const { heightAt } = makeLandscape(new Uint8Array(TERRAIN_GRID ** 2));
+  for (const x of [-801, -48, 0, 48, 716]) {
+    const z = riverZ(x);
+    assert.ok(waterAt(x, z) - heightAt(x, z) > 0.73);
+    assert.ok(Math.abs(heightAt(x - 0.001, z) - heightAt(x + 0.001, z)) < 0.01);
+  }
+  const z = -25;
+  const x = streamX(z, 27);
+  assert.ok(waterAt(x, z) > heightAt(x, z));
+});
+
+test('the bridge and house stairs are walkable without lifting a dog beneath the floor', () => {
+  const groundAt = () => 0;
+  const { houses, crossings } = villageForChunk(0, -1, groundAt);
+  const house = houses[0];
+  const bridge = crossings.find(crossing => !crossing.transverse);
+  assert.ok(bridge);
+  assert.equal(villageSupport(bridge.x, bridge.z, Infinity, [], [bridge]), bridge.deck);
+  assert.equal(crossingHeight(bridge, bridge.halfLength), bridge.south);
+  assert.equal(villageSupport(house.x, house.z, 0.34, [house], []), -Infinity);
+  assert.equal(villageSupport(house.x, house.z, Infinity, [house], []), HOUSE.floor * house.scale);
+  const stair = HOUSE.porch + HOUSE.stairRun / 2;
+  const x = house.x + house.sin * stair * house.scale;
+  const z = house.z + house.cos * stair * house.scale;
+  assert.ok(Math.abs(villageSupport(x, z, Infinity, [house], []) - HOUSE.floor * house.scale / 2) < 1e-9);
+
+  const below = { x: house.x, y: 0, z: house.z - 2.2 };
+  moveInWorld(below, 0, -0.8, houseColliders(house));
+  assert.ok(Math.abs(below.z - (house.z - 3)) < 1e-9);
 });
 
 test('the chase camera shortens its boom for foliage and rising ground', () => {

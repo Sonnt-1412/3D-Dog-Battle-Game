@@ -28,5 +28,5 @@ const forestSizes = await Promise.all(Object.values(forestAssets).map(async ({ u
 }));
 const forestBytes = forestSizes.reduce((total, bytes) => total + bytes, 0);
 if (forestAssets.elevation.bytes !== TERRAIN_GRID ** 2) throw new Error('Elevation dimensions do not match the level');
-if (forestBytes > 1_600_000) throw new Error(`Forest exceeds the 1.6 MB asset budget: ${forestBytes} bytes`);
-console.log(`Web assets: ${dog.id}, ${(size / 1e6).toFixed(2)} MB. Pine trail, ${(forestBytes / 1e6).toFixed(2)} MB.`);
+if (forestBytes > 2_000_000) throw new Error(`Valley exceeds the 2 MB asset budget: ${forestBytes} bytes`);
+console.log(`Web assets: ${dog.id}, ${(size / 1e6).toFixed(2)} MB. River valley, ${(forestBytes / 1e6).toFixed(2)} MB.`);
