@@ -60,8 +60,13 @@ const dist = resolve(root, 'dist');
 await rm(dist, { recursive: true, force: true });
 await mkdir(resolve(dist, 'vendor'), { recursive: true });
 await cp(resolve(root, 'web'), dist, { recursive: true });
-await cp(resolve(root, 'public'), dist, { recursive: true });
-for (const filename of ['three.module.js', 'three.core.js']) {
+const publicRoot = resolve(root, 'public');
+const manifest = resolve(publicRoot, 'catalog.json');
+const { dogs: [dog] } = JSON.parse(await readFile(manifest, 'utf8'));
+await mkdir(resolve(dist, 'models'), { recursive: true });
+await copyFile(manifest, resolve(dist, 'catalog.json'));
+await copyFile(resolve(publicRoot, '.' + dog.asset), resolve(dist, '.' + dog.asset));
+for (const filename of ['three.module.min.js', 'three.core.min.js']) {
   await copyFile(resolve(root, 'node_modules/three/build', filename), resolve(dist, 'vendor', filename));
 }
 for (const filename of ['loaders/GLTFLoader.js', 'utils/BufferGeometryUtils.js', 'utils/SkeletonUtils.js']) {
@@ -72,6 +77,7 @@ for (const filename of ['loaders/GLTFLoader.js', 'utils/BufferGeometryUtils.js',
 await copyFile(resolve(root, 'node_modules/meshoptimizer/meshopt_decoder.mjs'),
   resolve(dist, 'vendor/meshopt_decoder.mjs'));
 await mkdir(resolve(dist, 'licenses'), { recursive: true });
+await copyFile(resolve(publicRoot, 'licenses/LABRADOR_SOURCE.txt'), resolve(dist, 'licenses/LABRADOR_SOURCE.txt'));
 const packages = ['three', 'meshoptimizer'];
 const notices = [];
 for (const name of packages) {
@@ -91,10 +97,14 @@ await writeFile(resolve(dist, 'licenses/index.html'), `<!doctype html>
 <body style="max-width:720px;margin:60px auto;padding:24px;font:16px/1.7 system-ui;color:#294d3b">
 <a href="/">← Back to Pawtown</a><h1>Credits &amp; licenses</h1>
 <ul><li><a href="LABRADOR_SOURCE.txt">Labrador source model usage notice</a></li>
-<li><a href="PUG_LICENSE.txt">Quaternius source notice</a></li>
-<li><a href="GOBKIT_LICENSE.txt">Gobkit source notice</a></li>
 <li><a href="DEPENDENCIES.txt">Game engine and decoder dependencies</a></li></ul>
 <p>Models are included for use in this application. Source-model redistribution restrictions still apply.</p></body></html>`);
 await writeFile(resolve(dist, 'healthz'), 'ok\n');
+<<<<<<< HEAD
 console.log('Built dist/: Pawtown game, 10 playable dogs, Three.js and local decoder.');
 >>>>>>> 6218043 (ok)
+||||||| parent of c01158c (Simplify Pawtown to a single-dog FPS playground)
+console.log('Built dist/: Pawtown game, 10 playable dogs, Three.js and local decoder.');
+=======
+console.log('Built dist/: Pawtown, H’Mông cộc, Three.js and local decoder.');
+>>>>>>> c01158c (Simplify Pawtown to a single-dog FPS playground)
