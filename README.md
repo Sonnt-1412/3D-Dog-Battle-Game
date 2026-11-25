@@ -1,18 +1,20 @@
 # Pawtown
 
-Sân chơi 3D với chó H’Mông cộc, chạy trực tiếp trong trình duyệt.
+Khám phá **Đồi thông** cùng chó H’Mông cộc trong trình duyệt, với camera góc nhìn thứ ba.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Mở [localhost:18080](http://localhost:18080), bấm **Vào sân**.
+Mở [localhost:18080](http://localhost:18080), bấm **Vào rừng**.
 
 - **WASD** hoặc phím mũi tên để di chuyển, **Shift** để chạy, **Space** để nhảy.
-- Di chuột để nhìn. Kéo chuột nếu trình duyệt không hỗ trợ khóa con trỏ.
-- **V** để đổi góc nhìn. Ở góc nhìn thứ ba, bấm **B** để xem động tác sủa.
+- Kéo chuột để xoay camera quanh chó và cuộn để đổi khoảng cách.
+- **B** để sủa.
 - **Esc** để tạm dừng, **R** để về điểm đầu.
-- Trên màn hình cảm ứng, dùng cần di chuyển, kéo trên sân để nhìn và dùng các nút trên màn hình.
+- Trên màn hình cảm ứng, dùng cần di chuyển và kéo trên bản đồ để xoay camera.
 
-Chạy `npm test` để kiểm tra chuyển động, animation và model được phát hành.
+Bản đồ dùng dữ liệu cao độ vùng Bidoup và tài nguyên CC0 từ Poly Haven và Tevy. Các tệp môi trường đã nén nằm trong `public/environment/` và được đóng gói khi chạy `npm run build`. Xem [nguồn tài nguyên](public/licenses/FOREST_ASSETS.html).
+
+Chạy `npm test` để kiểm tra chuyển động, va chạm, camera và tài nguyên phát hành.

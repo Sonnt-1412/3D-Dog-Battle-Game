@@ -7,9 +7,6 @@ const start = get('start');
 const hud = get('hud');
 const pauseScreen = get('pause-screen');
 const resume = get('resume');
-const view = get('view');
-const viewLabel = get('view-label');
-const lookHint = get('look-hint');
 const stamina = get('stamina');
 const staminaFill = get('stamina-fill');
 const joystick = get('joystick');
@@ -40,22 +37,12 @@ function modeChanged(mode) {
   if (mode === 'paused') resume.focus();
 }
 
-function changeView(camera) {
-  document.body.dataset.view = camera;
-  const first = camera === 'first';
-  viewLabel.textContent = first ? 'Góc nhìn thứ nhất' : 'Góc nhìn thứ ba';
-  view.setAttribute('aria-label', first ? 'Chuyển sang góc nhìn thứ ba' : 'Chuyển sang góc nhìn thứ nhất');
-}
-
-function play(event) {
-  game?.play(event.pointerType !== 'touch' && !matchMedia('(pointer: coarse)').matches);
-}
+function play() { game?.play(); }
 
 start.addEventListener('click', play);
 resume.addEventListener('click', play);
-get('reset').addEventListener('click', event => { game.reset(); play(event); });
+get('reset').addEventListener('click', () => { game.reset(); play(); });
 get('pause').addEventListener('click', () => game.pause());
-get('view').addEventListener('click', () => { game.toggleView(); world.focus({ preventScroll: true }); });
 get('bark').addEventListener('click', () => game.bark());
 get('jump').addEventListener('pointerdown', event => {
   if (event.button === 0) game.jump();
@@ -112,9 +99,7 @@ async function boot() {
   try {
     game = new Pawtown(world, {
       mode: modeChanged,
-      view: changeView,
       error: showError,
-      capture(locked) { lookHint.textContent = locked ? 'Di chuột để nhìn' : 'Kéo chuột để nhìn'; },
       stamina(percent) {
         stamina.setAttribute('aria-valuenow', percent);
         staminaFill.style.transform = `scaleX(${percent / 100})`;
@@ -126,15 +111,17 @@ async function boot() {
     return;
   }
   try {
-    const response = await fetch('/catalog.json');
-    if (!response.ok) throw new Error(`Catalog request failed: ${response.status}`);
-    const { dogs } = await response.json();
-    await game.load(dogs[0]);
-    get('start-label').textContent = 'Vào sân';
+    const dog = fetch('/catalog.json').then(async response => {
+      if (!response.ok) throw new Error(`Catalog request failed: ${response.status}`);
+      const { dogs } = await response.json();
+      return dogs[0];
+    });
+    await game.load(dog);
+    get('start-label').textContent = 'Vào rừng';
     start.disabled = false;
   } catch (error) {
     console.error(error);
-    showError('Tải mẫu chó thất bại. Hãy tải lại trang để thử lại.');
+    showError('Chưa tải được bản đồ hoặc chú chó. Hãy tải lại trang để thử lại.');
   }
 }
 

@@ -1,24 +1,25 @@
 # Pawtown architecture
 
-Pawtown ships one rigged H’Mông cộc and an open circular stage. The ground and sky
-are two procedural meshes. The ground shader draws the grid, boundary, and a
-contact shadow in the same pass. Both meshes use local shaders and need no
-environment textures or shadow maps.
+The pine trail uses a resampled SRTM elevation grid from the Bidoup area.
+`terrain.mjs` samples the same triangles that `world.mjs` renders, so the
+dog, props and chase camera share the surface. The trail follows editable
+waypoints. Trees and rocks use simple colliders.
 
-`engine.mjs` runs movement in fixed 60 Hz steps, interpolates the rendered
-position, and applies mouse or touch camera input per rendered frame. The
-first-person camera follows the dog's eye height. Third-person play and the
-opening preview show the skinned dog. First-person play skips skin animation
-and drawing. The preview draws at up to 30 Hz. Pausing draws only when the
-viewport changes. Rendering caps pixel density and total buffer size, with a
-smaller budget on touch devices.
+`engine.mjs` runs movement at 60 fixed steps per second and interpolates the
+render position. The chase camera orbits the dog, zooms on desktop and shortens
+its reach near hills and foliage. Rendering aims for 60 Hz while playing and
+24 Hz on the opening screen. The pixel budget is lower on touch devices and
+reduces further when sustained frame times rise.
 
-`animation.mjs` blends Idle, Walk, Trot, and Gallop at a shared, distance-driven
-phase. Bark uses a one-shot clip and the dog tilts with its jump velocity. `npm run models:prepare` derives the
-playable GLB from the tracked H’Mông cộc source export. It keeps the rig and
-gameplay clips, removes the high-poly strand mesh, simplifies the remaining
-meshes, resizes textures, and writes a content-fingerprinted Meshopt export.
+The map uses imported models and photos with WebP textures and Meshopt geometry.
+Repeated plants and props use GPU instancing. Distant spruce trees use rendered
+impostors, and the renderer culls understory beyond its useful distance.
+Sun shadows are rendered once at load. A contact shadow follows the dog in
+the terrain shader. The existing dog animation shares a distance-driven gait
+phase and uses a one-shot bark clip.
 
-`npm run build` validates the playable catalog and ships only its model, local
-Three.js and the Meshopt decoder. The static build runs with the Node server
-or Docker. The desktop tools use their own catalogs and models.
+`npm run build` verifies the fingerprinted local assets and copies them into
+`dist/`. The map adds 1.28 MB of model and texture data. The browser loads
+the environment and dog in parallel from the same origin. The same output
+works with Vercel, Docker or the local Node server. See
+[environment sources](public/licenses/FOREST_ASSETS.html) for the original assets.

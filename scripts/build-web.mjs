@@ -1,6 +1,7 @@
 import { mkdir, cp, copyFile, readFile, writeFile, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { forestAssets } from '../web/game/forest-assets.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dist = resolve(root, 'dist');
@@ -13,6 +14,9 @@ const { dogs: [dog] } = JSON.parse(await readFile(manifest, 'utf8'));
 await mkdir(resolve(dist, 'models'), { recursive: true });
 await copyFile(manifest, resolve(dist, 'catalog.json'));
 await copyFile(resolve(publicRoot, '.' + dog.asset), resolve(dist, '.' + dog.asset));
+await mkdir(resolve(dist, 'environment'), { recursive: true });
+await Promise.all(Object.values(forestAssets).map(({ url }) =>
+  copyFile(resolve(publicRoot, '.' + url), resolve(dist, '.' + url))));
 for (const filename of ['three.module.min.js', 'three.core.min.js']) {
   await copyFile(resolve(root, 'node_modules/three/build', filename), resolve(dist, 'vendor', filename));
 }
@@ -25,6 +29,7 @@ await copyFile(resolve(root, 'node_modules/meshoptimizer/meshopt_decoder.mjs'),
   resolve(dist, 'vendor/meshopt_decoder.mjs'));
 await mkdir(resolve(dist, 'licenses'), { recursive: true });
 await copyFile(resolve(publicRoot, 'licenses/LABRADOR_SOURCE.txt'), resolve(dist, 'licenses/LABRADOR_SOURCE.txt'));
+await copyFile(resolve(publicRoot, 'licenses/FOREST_ASSETS.html'), resolve(dist, 'licenses/FOREST_ASSETS.html'));
 const packages = ['three', 'meshoptimizer'];
 const notices = [];
 for (const name of packages) {
@@ -43,8 +48,9 @@ await writeFile(resolve(dist, 'licenses/index.html'), `<!doctype html>
 <title>Credits &amp; licenses — Pawtown</title>
 <body style="max-width:720px;margin:60px auto;padding:24px;font:16px/1.7 system-ui;color:#294d3b">
 <a href="/">← Back to Pawtown</a><h1>Credits &amp; licenses</h1>
-<ul><li><a href="LABRADOR_SOURCE.txt">Labrador source model usage notice</a></li>
+<ul><li><a href="FOREST_ASSETS.html">Pine trail environment sources</a></li>
+<li><a href="LABRADOR_SOURCE.txt">Labrador source model usage notice</a></li>
 <li><a href="DEPENDENCIES.txt">Game engine and decoder dependencies</a></li></ul>
 <p>Models are included for use in this application. Source-model redistribution restrictions still apply.</p></body></html>`);
 await writeFile(resolve(dist, 'healthz'), 'ok\n');
-console.log('Built dist/: Pawtown, H’Mông cộc, Three.js and local decoder.');
+console.log('Built dist/: Pawtown, pine trail, H’Mông cộc and local engine.');

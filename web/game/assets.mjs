@@ -3,9 +3,10 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from '/vendor/meshopt_decoder.mjs';
 import { DogAnimation, GAITS, GESTURES } from './animation.mjs';
 
+export const modelLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+
 export async function loadDog(dog) {
-  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-  const { scene, animations } = await loader.loadAsync(dog.asset);
+  const { scene, animations } = await modelLoader.loadAsync(dog.asset);
   const root = new THREE.Group();
   root.add(scene);
   const mixer = new THREE.AnimationMixer(scene);
