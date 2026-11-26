@@ -1,21 +1,13 @@
 import * as THREE from 'three';
 import {
-  CHUNK_SEGMENTS, CHUNK_SIZE, TERRAIN_STEP, SUN_DIRECTION, clamp, channelAt, paddyEdge, riverLevel, riverWidth, riverZ,
+  CHUNK_SEGMENTS, CHUNK_SIZE, TERRAIN_STEP, clamp, channelAt, paddyEdge, riverLevel, riverWidth, riverZ,
   streamAnchor, streamLevel, streamWidth, streamX, trailDistance,
 } from './terrain.mjs';
 import { WATER_LAYER } from './river-reflection.mjs';
+import { SKY_SAMPLE } from './atmosphere.mjs';
 
-const SKY_SAMPLE = `
-  uniform sampler2D panorama;
-  vec3 skyColor(vec3 direction) {
-    vec3 ray = normalize(direction);
-    vec2 uv = vec2(atan(ray.z, ray.x) * 0.15915494 + 0.50,
-      asin(clamp(ray.y, -1.0, 1.0)) * 0.31830989 + 0.535);
-    return texture2D(panorama, uv).rgb;
-  }
-`;
 const WAVE_AXES = [
-  new THREE.Vector2(1.25, 1.9), new THREE.Vector2(3, -4.7), new THREE.Vector2(7.75, 4.3),
+  new THREE.Vector2(1.18, 1.82), new THREE.Vector2(2.67, -3.85),
 ];
 
 export function alignWater(material, origin) {
@@ -27,42 +19,20 @@ export function alignWater(material, origin) {
   }
 }
 
-export function makeSky(panorama) {
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(114, 28, 14), new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false, depthTest: false, toneMapped: false,
-    uniforms: { panorama: { value: panorama } },
-    vertexShader: `
-      varying vec3 vDirection;
-      void main() {
-        vDirection = position;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: SKY_SAMPLE + `
-      varying vec3 vDirection;
-      void main() {
-        gl_FragColor = vec4(skyColor(vDirection), 1.0);
-        #include <colorspace_fragment>
-      }
-    `,
-  }));
-  sky.frustumCulled = false;
-  sky.renderOrder = -1;
-  return sky;
-}
-
-export function terrainMaterial(textures, shadow, time) {
+export function terrainMaterial(textures, atmosphere, shadow, time, mobile) {
   const material = new THREE.MeshStandardMaterial({
     map: textures.grass,
     normalMap: textures.grassNormal,
-    normalScale: new THREE.Vector2(0.58, 0.58),
+    normalScale: new THREE.Vector2(0.69, 0.69),
     roughness: 0.98,
   });
   material.onBeforeCompile = shader => {
-    Object.assign(shader.uniforms, {
+    Object.assign(shader.uniforms, atmosphere, {
       trailColor: { value: textures.trail },
       trailNormals: { value: textures.trailNormal },
-      panorama: { value: textures.sky },
+      bankColor: { value: textures.mud },
+      bankNormals: { value: textures.mudNormal },
+      rippleMap: { value: textures.rippleNormal },
       dogLocation: { value: shadow.position },
       dogForward: { value: shadow.forward },
       jumpHeight: { get value() { return shadow.lift; } },
@@ -82,37 +52,53 @@ export function terrainMaterial(textures, shadow, time) {
       varying vec3 vTerrainPosition;
       uniform sampler2D trailColor;
       uniform sampler2D trailNormals;
+      uniform sampler2D bankColor;
+      uniform sampler2D bankNormals;
+      uniform sampler2D rippleMap;
       uniform vec3 dogLocation;
       uniform vec2 dogForward;
       uniform float jumpHeight;
       uniform float clock;
     ` + shader.fragmentShader.replace('#include <map_fragment>', `
-      vec4 grassColor = texture2D(map, vMapUv);
+      vec3 grassColor = texture2D(map, vMapUv).rgb;
+      vec2 broadUv = vec2(-vMapUv.y, vMapUv.x) * 0.125;
+      float moisture = texture2D(map, broadUv).g;
+      float speckle = (grassColor.g - moisture) * 0.66;
       vec2 trailUv = vec2(vMapUv.y, -vMapUv.x) * 1.125;
-      vec4 stoneColor = texture2D(trailColor, trailUv);
-      float edge = (grassColor.g - stoneColor.r) * 0.57;
-      float trailMix = smoothstep(0.17, 0.83, max(vLandBlend.x, vLandBlend.y) + edge);
-      float patches = 0.78 + 0.20 * sin(vMapUv.x * 0.54 + vMapUv.y * 0.47)
-        * sin(vMapUv.y * 0.72 - vMapUv.x * 0.58);
+      vec2 mudUv = vMapUv * 2.0;
+      vec3 gravel = texture2D(trailColor, trailUv).rgb;
+      vec3 loam = texture2D(bankColor, mudUv).rgb;
+      float trailMix = smoothstep(0.25, 0.87, vLandBlend.x + speckle);
+      float inMud = smoothstep(0.13, 0.83, max(vLandBlend.y, vLandBlend.w) + speckle * 0.7);
+      float canopy = mix(0.91, 1.11, smoothstep(0.08, 0.29, moisture));
       vec2 delta = vTerrainPosition.xz - dogLocation.xz;
       vec2 body = vec2(dot(delta, vec2(dogForward.y, -dogForward.x)) * 4.0, dot(delta, dogForward) * 2.0);
       float contact = exp(-dot(body, body) / (1.0 + 2.4 * jumpHeight)) * exp(-3.0 * jumpHeight);
-      vec3 undergrowth = grassColor.rgb * mix(vec3(0.48, 0.61, 0.41), vec3(0.79, 0.96, 0.64), patches);
-      undergrowth = mix(undergrowth, stoneColor.rgb * vec3(0.47, 0.35, 0.25), vLandBlend.w * 0.94);
-      vec3 path = stoneColor.rgb * mix(vec3(0.80, 0.76, 0.68), vec3(0.35, 0.43, 0.37), vLandBlend.y * 0.91);
-      vec2 bed = vMapUv * vec2(12.0, 9.0);
-      float caustic = pow(max(0.0, sin(bed.x + sin(bed.y) + clock * 1.5)
-        * sin(bed.y - bed.x * 0.61 - clock * 1.1)), 3.0) * vLandBlend.z;
-      diffuseColor.rgb *= mix(undergrowth, path, trailMix) * (1.0 - 0.64 * contact) * (1.0 + caustic * 0.28);
+      vec3 undergrowth = grassColor * vec3(0.73, 1.02, 0.65) * canopy;
+      vec3 path = mix(loam * vec3(1.24, 1.10, 0.96), gravel * vec3(0.83, 0.80, 0.72), 0.53);
+      vec3 bank = loam * mix(vec3(0.92, 0.83, 0.73), vec3(0.55, 0.65, 0.56), vLandBlend.y);
+      float caustic = 0.0;
+      if (vLandBlend.z > 0.01) {
+        vec2 bed = vTerrainPosition.xz * 0.625 + vec2(-0.032, 0.014) * clock;
+        vec2 bend = texture2D(rippleMap, bed).rg * 2.0 - 1.0;
+        float refracted = sin((bed.x + bend.x * 0.29) * 23.0) * sin((bed.y + bend.y * 0.25) * 19.0);
+        caustic = smoothstep(0.54, 0.98, refracted) * vLandBlend.z;
+      }
+      diffuseColor.rgb *= mix(mix(undergrowth, path, trailMix), bank, inMud)
+        * (1.0 - ${mobile ? '0.61' : '0.36'} * contact) * (1.0 + caustic * 0.31);
     `).replace('#include <normal_fragment_maps>', `
       vec3 grassN = texture2D(normalMap, vNormalMapUv).xyz * 2.0 - 1.0;
       vec3 trailN = texture2D(trailNormals, trailUv).xyz * 2.0 - 1.0;
-      vec3 mapN = mix(grassN, vec3(-trailN.y, trailN.x, trailN.z), trailMix);
+      vec3 mudN = texture2D(bankNormals, mudUv).xyz * 2.0 - 1.0;
+      vec3 mapN = mix(mix(grassN, vec3(-trailN.y, trailN.x, trailN.z), trailMix), mudN, inMud);
       mapN.xy *= normalScale;
       normal = normalize(tbn * mapN);
+    `).replace('#include <roughnessmap_fragment>', `
+      #include <roughnessmap_fragment>
+      roughnessFactor = mix(roughnessFactor, 0.47, inMud * vLandBlend.y * 0.66);
     `).replace('#include <fog_fragment>', `
       #include <fog_fragment>
-      float haze = smoothstep(66.0, 87.0, length(vTerrainPosition.xz - cameraPosition.xz));
+      float haze = smoothstep(75.0, 109.0, length(vTerrainPosition.xz - cameraPosition.xz));
       if (haze > 0.0) {
         vec4 horizon = linearToOutputTexel(vec4(skyColor(vTerrainPosition - cameraPosition), 1.0));
         gl_FragColor.rgb = mix(gl_FragColor.rgb, horizon.rgb, haze);
@@ -168,8 +154,8 @@ export function fillGround(ground, x0, z0, rawHeight) {
       normal.setXYZ(i, nx / length, ny / length, nz / length);
       uv.setXY(i, (lx + x0 % 192) / 2.4, -(lz + z0 % 192) / 2.4);
       const { riverEdge, streamEdge, anchor } = channelAt(wx, wz);
-      const track = clamp(1.43 - trailDistance(wx, wz) * 0.68, 0, 1);
-      const wetness = clamp((1.5 - Math.min(riverEdge, streamEdge)) * 0.48, 0, 1);
+      const track = clamp(1.44 - trailDistance(wx, wz) * 0.81, 0, 1);
+      const wetness = clamp((1.6 - Math.min(riverEdge, streamEdge)) * 0.49, 0, 1);
       const level = Math.max(riverEdge < 2.6 ? riverLevel(wx) : -Infinity,
         streamEdge < 1.12 ? streamLevel(wz, anchor) : -Infinity);
       const depth = level - heights[h];
@@ -182,7 +168,7 @@ export function fillGround(ground, x0, z0, rawHeight) {
   geo.computeBoundingSphere();
 }
 
-export function waterMaterial(panorama, time, swimmer, reflection) {
+export function waterMaterial(atmosphere, ripples, time, swimmer, reflection) {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -190,14 +176,13 @@ export function waterMaterial(panorama, time, swimmer, reflection) {
     forceSinglePass: true,
     defines: reflection ? { RIVER_MIRROR: 1 } : {},
     uniforms: {
-      panorama: { value: panorama }, clock: time, swimmer: { value: swimmer },
-      waveAxes: { value: WAVE_AXES }, waveOffset: { value: new THREE.Vector3() },
-      sunDirection: { value: new THREE.Vector3(...SUN_DIRECTION).normalize() }, ...reflection?.uniforms,
+      ...atmosphere, clock: time, swimmer: { value: swimmer }, rippleMap: { value: ripples },
+      waveAxes: { value: WAVE_AXES }, waveOffset: { value: new THREE.Vector2() }, ...reflection?.uniforms,
     },
     vertexShader: `
       varying vec3 vWater;
-      varying vec3 vChannel;
-      attribute vec3 channel;
+      varying vec2 vChannel;
+      attribute vec2 channel;
       #ifdef RIVER_MIRROR
       uniform mat4 mirrorTransform;
       uniform float mirrorLevel;
@@ -215,12 +200,12 @@ export function waterMaterial(panorama, time, swimmer, reflection) {
     `,
     fragmentShader: SKY_SAMPLE + `
       varying vec3 vWater;
-      varying vec3 vChannel;
+      varying vec2 vChannel;
       uniform float clock;
       uniform vec3 swimmer;
-      uniform vec3 sunDirection;
-      uniform vec2 waveAxes[3];
-      uniform vec3 waveOffset;
+      uniform sampler2D rippleMap;
+      uniform vec2 waveAxes[2];
+      uniform vec2 waveOffset;
       #ifdef RIVER_MIRROR
       uniform sampler2D riverMirror;
       uniform float mirrorStrength;
@@ -230,33 +215,43 @@ export function waterMaterial(panorama, time, swimmer, reflection) {
         vec3 eye = cameraPosition - vWater;
         float d = length(eye);
         vec3 view = eye / max(d, 0.01);
+        float depth = max(vChannel.x, 0.0);
+        vec2 flow = mix(vec2(0.04, -0.15), vec2(-0.14, -0.021), vChannel.y);
+        vec2 coarse = vWater.xz * vec2(0.25, 0.375) + flow * clock;
+        vec2 fine = vec2(vWater.z, -vWater.x) * vec2(0.625, 0.5) - flow.yx * clock * 0.61;
+        vec2 a = texture2D(rippleMap, coarse).rg * 2.0 - 1.0;
+        vec2 b = texture2D(rippleMap, fine + a * 0.06).rg * 2.0 - 1.0;
         float swell = sin(dot(vWater.xz, waveAxes[0]) + waveOffset.x - clock * 1.72);
-        float ripple = sin(dot(vWater.xz, waveAxes[1]) + waveOffset.y + swell * 0.8 - clock * 2.45);
-        float small = sin(dot(vWater.xz, waveAxes[2]) + waveOffset.z - clock * 3.48);
-        float wake = length(vWater.xz - swimmer.xz);
-        float ring = sin(wake * 18.0 - clock * 12.0) * exp(-wake * 1.45) * swimmer.y;
-        vec3 n = normalize(vec3(ripple * 0.035 + swell * 0.023 + small * 0.013,
-          1.0, swell * 0.035 - ripple * 0.026 + small * 0.015 + ring * 0.084));
-        float fresnel = pow(1.0 - clamp(dot(view, n), 0.0, 1.0), 4.0);
+        float wave = sin(dot(vWater.xz, waveAxes[1]) + waveOffset.y + swell * 0.52 - clock * 2.45);
+        vec2 wakeVector = vWater.xz - swimmer.xz;
+        float wake = length(wakeVector);
+        float ring = sin(wake * 19.0 - clock * 13.0) * exp(-wake * 1.45) * swimmer.y;
+        vec2 slope = a * 0.103 + vec2(-b.y, b.x) * 0.069 + vec2(swell, wave) * 0.021
+          + wakeVector / max(wake, 0.16) * ring * 0.14;
+        vec3 n = normalize(vec3(slope.x, 1.0, slope.y));
+        float towardEye = clamp(abs(dot(view, n)), 0.0, 1.0);
+        float fresnel = 0.032 + 0.968 * pow(1.0 - towardEye, 4.35);
         vec3 reflection = skyColor(reflect(-view, n));
         #ifdef RIVER_MIRROR
-        if (mirrorStrength > 0.0 && vChannel.z > 0.0 && vMirror.w > 0.0) {
-          vec2 uv = vMirror.xy / vMirror.w + n.xz * mix(0.20, 0.075, fresnel);
+        if (mirrorStrength > 0.0 && vChannel.y > 0.0 && vMirror.w > 0.0) {
+          vec2 uv = vMirror.xy / vMirror.w + slope * mix(0.14, 0.071, fresnel);
           vec2 border = min(uv, vec2(1.0) - uv);
           float weight = smoothstep(0.0, 0.09, min(border.x, border.y)) * (1.0 - smoothstep(28.0, 63.0, d));
-          reflection = mix(reflection, texture2D(riverMirror, uv).rgb, mirrorStrength * weight * 0.88);
+          reflection = mix(reflection, texture2D(riverMirror, uv).rgb, mirrorStrength * weight * 0.92);
         }
         #endif
-        float depth = clamp(vChannel.y, 0.0, 1.0);
-        vec3 water = mix(vec3(0.098, 0.145, 0.089), vec3(0.018, 0.090, 0.071), depth);
-        water = mix(water, reflection * vec3(0.77, 0.91, 0.94), 0.23 + fresnel * 0.68);
-        float glint = pow(max(dot(reflect(-sunDirection, n), view), 0.0), 130.0);
-        float shore = smoothstep(0.38, 0.74, vChannel.x) * (1.0 - smoothstep(0.78, 0.99, vChannel.x));
-        float foam = smoothstep(0.81, 0.99, swell * 0.37 + ripple * 0.41 + small * 0.22) * shore;
-        water += vec3(0.95, 0.91, 0.76) * (glint * 0.57 + foam * 0.105 + max(ring, 0.0) * 0.17);
-        float mist = smoothstep(45.0, 89.0, d);
+        float absorbed = 1.0 - exp(-depth * (0.94 + (1.0 - towardEye) * 0.67));
+        float reflectance = fresnel * mix(0.68, 1.0, smoothstep(0.015, 0.22, depth));
+        float opacity = reflectance + absorbed * (1.0 - reflectance);
+        vec3 water = (reflection * reflectance * vec3(0.91, 1.0, 0.97)
+          + vec3(0.045, 0.128, 0.096) * absorbed * (1.0 - reflectance)) / max(opacity, 0.02);
+        float glint = pow(max(dot(n, normalize(sunDirection + view)), 0.0), 250.0);
+        float shore = smoothstep(0.008, 0.042, depth) * (1.0 - smoothstep(0.060, 0.17, depth));
+        float foam = shore * smoothstep(0.38, 0.77, a.x * 0.54 + b.y * 0.53 + wave * 0.27);
+        water += vec3(0.98, 0.92, 0.75) * (glint * 0.52 + foam * 0.19 + max(ring, 0.0) * 0.12);
+        float mist = smoothstep(48.0, 104.0, d);
         if (mist > 0.0) water = mix(water, skyColor(vWater - cameraPosition), mist);
-        gl_FragColor = vec4(water, mix(0.21 + depth * 0.39 + fresnel * 0.37, 0.97, mist));
+        gl_FragColor = vec4(water, mix(opacity + foam * 0.27, 0.97, mist) * smoothstep(0.0, 0.038, depth));
         #include <colorspace_fragment>
       }
     `,
@@ -264,17 +259,18 @@ export function waterMaterial(panorama, time, swimmer, reflection) {
 }
 
 let waterIndices;
+const WATER_COLUMNS = 9;
 export function makeWater(material) {
-  const points = 3 * (CHUNK_SEGMENTS + 1);
+  const points = WATER_COLUMNS * (CHUNK_SEGMENTS + 1);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(points * 3), 3));
-  geometry.setAttribute('channel', new THREE.BufferAttribute(new Float32Array(points * 3), 3));
+  geometry.setAttribute('channel', new THREE.BufferAttribute(new Float32Array(points * 2), 2));
   if (!waterIndices) {
     const indices = [];
     for (let row = 0; row < CHUNK_SEGMENTS; row++) {
-      for (let col = 0; col < 2; col++) {
-        const i = row * 3 + col;
-        indices.push(i, i + 1, i + 3, i + 3, i + 1, i + 4);
+      for (let col = 0; col < WATER_COLUMNS - 1; col++) {
+        const i = row * WATER_COLUMNS + col;
+        indices.push(i, i + 1, i + WATER_COLUMNS, i + WATER_COLUMNS, i + 1, i + WATER_COLUMNS + 1);
       }
     }
     waterIndices = new THREE.Uint16BufferAttribute(indices, 1);
@@ -306,16 +302,14 @@ export function fillChannel(mesh, x0, z0, creek, heightAt) {
     const high = clamp(center + width + padding, cross, cross + CHUNK_SIZE);
     if (high - low > 0.01) crosses = true;
 
-    const offsets = [low, clamp(center, low, high), high];
-    for (let side = 0; side < 3; side++) {
-      const offset = offsets[side];
+    for (let side = 0; side < WATER_COLUMNS; side++) {
+      const offset = low + (high - low) * side / (WATER_COLUMNS - 1);
       const x = creek ? offset : along;
       const z = creek ? along : offset;
       const y = creek ? streamLevel(along, anchor) : riverLevel(along);
-      const vertex = i * 3 + side;
+      const vertex = i * WATER_COLUMNS + side;
       pos.setXYZ(vertex, x - x0, y + (creek ? 0.014 : 0), z - z0);
-      channel.setXYZ(vertex, Math.abs(offset - center) / (width + padding),
-        (y - heightAt(x, z)) * 0.95, creek ? 0 : 1);
+      channel.setXY(vertex, y - heightAt(x, z), creek ? 0 : 1);
     }
   }
   mesh.visible = crosses;

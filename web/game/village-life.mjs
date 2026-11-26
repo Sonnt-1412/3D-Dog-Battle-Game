@@ -15,19 +15,23 @@ function walkingRoute(points, speed, pause) {
     duration += length;
     return leg;
   });
-  const half = duration + pause;
+  const ramp = Math.min(0.72, duration * 0.23);
+  const travel = duration + ramp;
+  const half = travel + pause;
   return (time, state) => {
     const loop = time % (2 * half);
     const reverse = loop >= half;
-    const elapsed = loop % half;
-    const moving = elapsed < duration;
-    const distance = reverse ? duration - Math.min(elapsed, duration) : Math.min(elapsed, duration);
+    const elapsed = Math.min(loop % half, travel);
+    const remaining = travel - elapsed;
+    const eased = elapsed < ramp ? elapsed * elapsed / (2 * ramp)
+      : remaining < ramp ? duration - remaining * remaining / (2 * ramp) : elapsed - ramp * 0.5;
+    const distance = reverse ? duration - eased : eased;
     const leg = legs.find(segment => distance <= segment.start + segment.length) ?? legs.at(-1);
     const t = (distance - leg.start) / leg.length;
     state.x = leg.startX + leg.dx * t;
     state.z = leg.startZ + leg.dz * t;
     state.heading = leg.heading + (reverse ? Math.PI : 0);
-    state.speed = moving ? speed : 0;
+    state.speed = speed * Math.min(1, elapsed / ramp, remaining / ramp);
   };
 }
 
@@ -62,7 +66,7 @@ function resident(scene, asset, dressing, { hat, scale, phase }) {
   return {
     root, phase, width: 0.37, length: 0.34,
     animate(dt, time, state) {
-      walkWeight = THREE.MathUtils.damp(walkWeight, state.speed ? 1 : 0, 8, dt);
+      walkWeight = THREE.MathUtils.damp(walkWeight, smooth(0.03, 0.24, state.speed), 8, dt);
       look.setEffectiveWeight(1 - walkWeight);
       walk.setEffectiveWeight(walkWeight).setEffectiveTimeScale(Math.max(0.62, state.speed / 1.12));
       mixer.update(dt);
@@ -75,6 +79,7 @@ function resident(scene, asset, dressing, { hat, scale, phase }) {
 function buffalo(scene, asset, scale, phase) {
   const root = new THREE.Group();
   root.name = 'Water buffalo';
+  root.rotation.order = 'YXZ';
   const model = clone(asset.scene);
   model.scale.setScalar(scale);
   model.rotation.y = Math.PI;
@@ -84,7 +89,7 @@ function buffalo(scene, asset, scale, phase) {
   const neckHeight = bones.neck.position.y;
   let lowered = 0;
   return {
-    root, phase, width: scale * 0.83, length: scale * 1.62,
+    root, phase, width: scale * 0.83, length: scale * 1.62, cattle: true,
     animate(dt, time, state, dog) {
       const t = time + phase;
       const distance = Math.hypot(dog.x - state.x, dog.z - state.z);
@@ -105,7 +110,7 @@ function buffalo(scene, asset, scale, phase) {
   };
 }
 
-function contactShadows(scene, capacity) {
+function contactShadows(scene, capacity, mobile) {
   const geometry = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
   const material = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2,
@@ -120,7 +125,7 @@ function contactShadows(scene, capacity) {
       varying vec2 vCircle;
       void main() {
         float shadow = 1.0 - smoothstep(0.10, 1.0, dot(vCircle, vCircle));
-        gl_FragColor = vec4(0.045, 0.049, 0.042, shadow * 0.35);
+        gl_FragColor = vec4(0.045, 0.049, 0.042, shadow * ${mobile ? '0.36' : '0.24'});
         #include <colorspace_fragment>
       }
     `,
@@ -133,7 +138,7 @@ function contactShadows(scene, capacity) {
   return mesh;
 }
 
-export function installVillageLife(scene, assets, dressing, mobile, surfaceAt, heightAt) {
+export function installVillageLife(scene, assets, dressing, mobile, surfaceAt, heightAt, actorShadows) {
   const people = [
     resident(scene, assets.villager, dressing, { hat: false, scale: 0.96, phase: 0.94 }),
     resident(scene, assets.keeper, dressing, { hat: true, scale: 0.91, phase: 3.74 }),
@@ -153,6 +158,7 @@ export function installVillageLife(scene, assets, dressing, mobile, surfaceAt, h
     actor.root.traverse(part => {
       if (part.isMesh) {
         part.receiveShadow = true;
+        actorShadows?.addCaster(part);
         if (part.isSkinnedMesh) {
           part.computeBoundingSphere();
           part.boundingSphere.radius *= 1.3;
@@ -160,7 +166,7 @@ export function installVillageLife(scene, assets, dressing, mobile, surfaceAt, h
       }
     });
   }
-  const shadows = contactShadows(scene, actors.length);
+  const shadows = contactShadows(scene, actors.length, mobile);
   const shadow = new THREE.Object3D();
   shadow.rotation.order = 'YXZ';
   let village = Infinity;
@@ -220,6 +226,10 @@ export function installVillageLife(scene, assets, dressing, mobile, surfaceAt, h
       const pitch = slope ? heightAt(state.x - frontX, state.z - frontZ) - heightAt(state.x + frontX, state.z + frontZ) : 0;
       const roll = slope ? heightAt(state.x + frontZ, state.z - frontX) - heightAt(state.x - frontZ, state.z + frontX) : 0;
       shadow.rotation.set(Math.atan2(pitch, 0.84), root.rotation.y, Math.atan2(roll, 0.84));
+      if (actor.cattle) {
+        root.rotation.x = THREE.MathUtils.clamp(shadow.rotation.x, -0.16, 0.16);
+        root.rotation.z = THREE.MathUtils.clamp(shadow.rotation.z, -0.11, 0.11);
+      }
       shadow.scale.set(actor.width, 1, actor.length);
       shadow.updateMatrix();
       shadows.setMatrixAt(count++, shadow.matrix);

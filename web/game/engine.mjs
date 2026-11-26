@@ -4,6 +4,7 @@ import { cameraReach, damping, integrateVelocity, moveInWorld, movementIntent, t
 import { SPAWN } from './terrain.mjs';
 import { addValleyLighting, loadValley } from './world.mjs';
 import { WATER_LAYER } from './river-reflection.mjs';
+import { makeActorShadows } from './actor-shadows.mjs';
 
 const STEP = 1 / 60;
 const PLAY_INTERVAL = STEP * 1000;
@@ -45,6 +46,7 @@ export class Pawtown {
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.needsUpdate = true;
     this.scene = new THREE.Scene();
+    this.actorShadows = this.mobile ? null : makeActorShadows();
     this.camera = new THREE.PerspectiveCamera(51, 1, 0.07, 129);
     this.camera.layers.enable(WATER_LAYER);
     this.sun = addValleyLighting(this.scene, this.mobile);
@@ -65,14 +67,15 @@ export class Pawtown {
   async load(dog) {
     [this.actor, this.world] = await Promise.all([
       Promise.resolve(dog).then(loadDog),
-      loadValley(this.scene, this.mobile),
+      loadValley(this.scene, this.mobile, this.actorShadows),
     ]);
     this.actor.root.rotation.order = 'YXZ';
     this.actor.root.traverse(part => {
       if (!part.isMesh) return;
       part.receiveShadow = true;
+      this.actorShadows?.addCaster(part);
       part.material.envMap = this.world.environment;
-      part.material.envMapIntensity = 0.72;
+      part.material.envMapIntensity = 0.83;
       if (part.material.name.includes('detailed coat')) {
         part.material.color.multiplyScalar(1.24);
       }
@@ -346,6 +349,7 @@ export class Pawtown {
       this.grounded && this.waterDepth > 0.18);
     this.camera.position.sub(origin);
     sky.position.copy(this.camera.position);
+    this.actorShadows?.render(this.renderer, this.scene, shadow.position, time * 0.001, this.quality, shifted);
     this.world.reflect(this.renderer, this.camera, this.quality);
     this.invalidated = false;
     this.renderer.render(this.scene, this.camera);

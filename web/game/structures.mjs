@@ -7,9 +7,13 @@ const UP = new THREE.Vector3(0, 1, 0);
 function builder(material) {
   const parts = [];
 
-  function stain(geometry, tint) {
-    const colors = new Float32Array(geometry.getAttribute('position').count * 3);
-    for (let i = 0; i < colors.length; i += 3) colors.set(tint, i);
+  function stain(geometry, shade) {
+    const count = geometry.getAttribute('position').count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const value = typeof shade === 'number' ? shade : shade[i];
+      colors.fill(value, i * 3, i * 3 + 3);
+    }
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     parts.push(geometry.index ? geometry.toNonIndexed() : geometry);
     if (geometry.index) geometry.dispose();
@@ -18,16 +22,20 @@ function builder(material) {
   function box(x, y, z, width, height, depth, shade = 1) {
     const geo = new THREE.BoxGeometry(width, height, depth);
     const uv = geo.getAttribute('uv');
+    const offset = Math.abs(x * 0.397 + y * 1.71 + z * 0.631) % 1;
     for (let face = 0; face < 6; face++) {
       const w = face < 2 ? depth : width;
       const h = face === 2 || face === 3 ? depth : height;
       for (let corner = 0; corner < 4; corner++) {
         const i = face * 4 + corner;
-        uv.setXY(i, uv.getX(i) * w / 1.6, uv.getY(i) * h / 1.6);
+        const u = uv.getX(i) * w / 1.6;
+        const v = uv.getY(i) * h / 1.6;
+        if (material.name === 'Timber' && w > h * 1.35) uv.setXY(i, v + offset, u + offset * 0.53);
+        else uv.setXY(i, u + offset, v + offset * 0.53);
       }
     }
     geo.translate(x, y, z);
-    stain(geo, [shade, shade, shade]);
+    stain(geo, shade);
   }
 
   function beam(a, b, thickness, shade = 0.78) {
@@ -41,7 +49,7 @@ function builder(material) {
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 0.28, uv.getY(i) * length / 1.9);
     geometry.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(UP, direction.clone().normalize()));
     geometry.translate(...from.addScaledVector(direction, 0.5));
-    stain(geometry, [shade, shade, shade]);
+    stain(geometry, shade);
   }
 
   function surface(points, uv, shade = 1) {
@@ -50,7 +58,40 @@ function builder(material) {
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(order.flatMap(i => points[i]), 3));
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(order.flatMap(i => uv[i]), 2));
     geometry.computeVertexNormals();
-    stain(geometry, [shade, shade, shade]);
+    stain(geometry, shade);
+  }
+
+  function roofSlope(eaves, ridge, side) {
+    const next = (side + 1) % 4;
+    const wide = side % 2 === 0;
+    const rows = 9;
+    const columns = wide ? 24 : 14;
+    const along = wide ? 5.8 : 3.8;
+    const positions = [], texCoords = [], indices = [], shade = [];
+    const mix = THREE.MathUtils.lerp;
+    for (let row = 0; row <= rows; row++) {
+      const t = row / rows;
+      for (let column = 0; column <= columns; column++) {
+        const u = column / columns;
+        const edge = Math.sin(u * Math.PI);
+        const texture = Math.sin(u * 48.0 + side * 1.3) * 0.022 + Math.cos(u * 21.0) * 0.021;
+        const droop = 0.25 * Math.sin(t * Math.PI) + (0.09 + texture) * edge * (1 - t) ** 1.7;
+        positions.push(...eaves[side].map((a, axis) =>
+          mix(mix(a, eaves[next][axis], u), mix(ridge[side][axis], ridge[next][axis], u), t)
+          - (axis === 1 ? droop : 0)));
+        texCoords.push(u * along * mix(1, wide ? 0.565 : 0.22, t) + side * 0.23, t * 2.9);
+        shade.push(0.78 + t * 0.12 + 0.12 * Math.sin(u * 8.7 + t * 2.6) ** 2 + texture);
+        if (row === rows || column === columns) continue;
+        const i = row * (columns + 1) + column;
+        indices.push(i, i + 1, i + columns + 1, i + 1, i + columns + 2, i + columns + 1);
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(texCoords, 2));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    stain(geometry, shade);
   }
 
   function finish(name) {
@@ -62,23 +103,24 @@ function builder(material) {
     mesh.receiveShadow = true;
     return mesh;
   }
-  return { box, beam, surface, finish };
+  return { box, beam, surface, roofSlope, finish };
 }
 
 export function villageMaterials(textures) {
-  const make = (key, color, strength) => new THREE.MeshStandardMaterial({
+  const make = (name, key, color, strength, roughness) => new THREE.MeshStandardMaterial({
+    name,
     map: textures[key],
     normalMap: textures[key + 'Normal'],
     normalScale: new THREE.Vector2(strength, strength),
     vertexColors: true,
     side: THREE.DoubleSide,
-    roughness: 0.96,
+    roughness,
     color,
   });
   return {
-    wood: make('wood', '#a37c58', 0.43),
-    wall: make('wall', '#c9b181', 0.53),
-    roof: make('roof', '#b4a079', 0.75),
+    wood: make('Timber', 'wood', '#c3b3a0', 0.58, 0.93),
+    wall: make('Woven bamboo', 'wall', '#d6c6a1', 0.57, 0.97),
+    roof: make('Reed thatch', 'roof', '#c5b898', 0.83, 0.96),
   };
 }
 
@@ -93,7 +135,13 @@ export function makeStiltHouse(materials) {
   const eaveY = floor + wallHeight + 0.07;
   const ridgeY = eaveY + 2.81;
 
-  wood.box(0, floor - 0.105, (porch - hd) * 0.5, width, 0.21, porch + hd, 0.81);
+  const boards = 33;
+  const boardWidth = width / boards;
+  for (let i = 0; i < boards; i++) {
+    const x = -hw + (i + 0.5) * boardWidth;
+    const stain = 0.77 + 0.13 * Math.sin(i * 2.21) ** 2;
+    wood.box(x, floor - 0.071, (porch - hd) * 0.5, boardWidth - 0.007, 0.142, porch + hd, stain);
+  }
   for (const z of [-2.46, 2.48, 3.64]) {
     wood.box(0, floor - 0.27, z, width + 0.28, 0.27, 0.20, 0.74);
   }
@@ -146,17 +194,21 @@ export function makeStiltHouse(materials) {
     [3.16, ridgeY, 0.10], [-3.16, ridgeY, 0.10]];
   for (let side = 0; side < 4; side++) {
     const next = (side + 1) % 4;
-    const slope = (corner, t) => eaves[corner].map((value, axis) =>
-      value + (ridge[corner][axis] - value) * t - (axis === 1 ? 0.26 * Math.sin(t * Math.PI) : 0));
-    const span = side % 2 ? 3.8 : 5.8;
-    const u = t => span * (1 - t * (side % 2 ? 0.99 : 0.45));
-    const bands = [0, 0.23, 0.58, 1];
-    for (let row = 0; row < bands.length - 1; row++) {
-      const a = bands[row], b = bands[row + 1];
-      roof.surface([slope(side, a), slope(next, a), slope(next, b), slope(side, b)],
-        [[0, a * 2.35], [u(a), a * 2.35], [u(b), b * 2.35], [0, b * 2.35]], 0.90 + b * 0.07);
+    roof.roofSlope(eaves, ridge, side);
+    const leaves = side % 2 ? 18 : 28;
+    for (let i = 0; i < leaves; i++) {
+      const a = i / leaves, b = (i + 1) / leaves;
+      const sample = (u, tip) => {
+        const fray = 0.028 * Math.sin(u * 84 + side) + 0.019 * Math.cos(u * 126);
+        return eaves[side].map((value, axis) => {
+          const p = THREE.MathUtils.lerp(value, eaves[next][axis], u);
+          return axis === 1 ? p + 0.022 - Math.sin(u * Math.PI) * 0.104
+            - (tip ? 0.117 + fray : 0) : p;
+        });
+      };
+      roof.surface([sample(a, false), sample(b, false), sample(b, true), sample(a, true)],
+        [[a * 5, 0.36], [b * 5, 0.36], [b * 5, 0.42], [a * 5, 0.42]], 0.65 + 0.12 * Math.sin(i * 2.24) ** 2);
     }
-    wood.beam(eaves[side], eaves[next], 0.13, 0.64);
   }
   wood.beam([-3.47, ridgeY - 0.04, 0.10], [3.47, ridgeY - 0.04, 0.10], 0.15, 0.68);
   roof.box(0, ridgeY - 0.025, 0.10, 6.53, 0.16, 0.38, 0.89);
@@ -183,7 +235,8 @@ export function makeCrossing(bridge, material, imported) {
     const along = -halfLength + (i + 0.5) * step;
     if (!customDeck && Math.abs(along) < centerSpan - step / 2) continue;
     const y = crossingHeight(bridge, along) - deck;
-    wood.box(0, y - 0.078, along, halfWidth * 2.08, 0.15, step * 0.97, 0.68 + 0.20 * (i % 7) / 6);
+    wood.box(Math.sin(i * 2.1) * 0.013, y - 0.078, along, halfWidth * 2.08, 0.15,
+      step * 0.959, 0.73 + 0.16 * Math.sin(i * 0.91 + 0.2) ** 2);
   }
 
   if (customDeck) {

@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { modelLoader } from './assets.mjs';
 import { forestAssets } from './forest-assets.mjs';
+import { atmosphereUniforms, makeSky } from './atmosphere.mjs';
 import {
   CHUNK_SEGMENTS, CHUNK_SIZE, PADDY, SPAWN, SUN_DIRECTION, TERRAIN_STEP, VILLAGE_SPACING, channelAt, chunkWindow, clamp,
   hash2, makeLandscape, paddyEdge, riverLevel, riverWidth, riverZ, streamAnchor, streamX, streamWidth, trailDistance, waterAt,
 } from './terrain.mjs';
 import { HOUSE, crossingCameraColliders, houseColliders, stairCameraColliders, villageForChunk, villageSupport } from './village.mjs';
 import { makeCrossing, makeStiltHouse, villageMaterials } from './structures.mjs';
-import { alignWater, fillChannel, fillGround, makeGround, makeSky, makeWater, terrainMaterial, waterMaterial } from './landscape-render.mjs';
+import { alignWater, fillChannel, fillGround, makeGround, makeWater, terrainMaterial, waterMaterial } from './landscape-render.mjs';
 import { riverReflection } from './river-reflection.mjs';
 import { installVillageLife } from './village-life.mjs';
 
@@ -28,21 +29,29 @@ const SHORE_PLANTS = [
   ['fig', -21.7, -22.1, 0.40], ['fig', 22.4, -28.6, 0.49],
   ['tree-fern', 6.45, 4.4, 0.57], ['tree-fern', -5.9, -22.8, 0.54],
   ['tree-fern', -10.8, -13.6, 0.56], ['tree-fern', 6.6, -27.5, 0.70],
+  ['fig', -10.4, -48.2, 0.49], ['fig', 13.4, -44.2, 0.58],
+  ['spruce', -6.8, -58.4, 0.55], ['spruce', 11.2, -53.7, 0.46],
+  ['meadow', -2.45, 5.25, 0.56], ['meadow', -3.20, 4.45, 0.67], ['meadow', -4.12, 3.72, 0.74],
+  ['meadow', 2.95, 5.10, 0.62], ['meadow', 3.52, 4.62, 0.64], ['meadow', 4.63, 4.14, 0.73],
 ];
 
 const keyOf = (x, z) => `${x},${z}`;
 const tileOf = value => Math.floor(value / CHUNK_SIZE);
 
-export async function loadValley(scene, mobile) {
+export async function loadValley(scene, mobile, actorShadows) {
   const loader = new THREE.TextureLoader();
-  const roles = ['grass', 'grassNormal', 'trail', 'trailNormal', 'sky', 'roof', 'roofNormal', 'wood', 'woodNormal', 'wall', 'wallNormal'];
+  const roles = ['grass', 'grassNormal', 'trail', 'trailNormal', 'mud', 'mudNormal', 'rippleNormal',
+    'sky', 'roof', 'roofNormal', 'wood', 'woodNormal', 'wall', 'wallNormal'];
   const models = ['props', 'valley', 'dressing', 'villager', 'keeper', 'buffalo'];
-  const [imports, elevation, ...images] = await Promise.all([
+  const binary = async key => {
+    const response = await fetch(forestAssets[key].url);
+    if (!response.ok) throw new Error(`Valley asset ${key} failed: ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
+  };
+  const [imports, elevation, ridges, ...images] = await Promise.all([
     Promise.all(models.map(async name => [name, await modelLoader.loadAsync(forestAssets[name].url)])),
-    fetch(forestAssets.elevation.url).then(response => {
-      if (!response.ok) throw new Error(`Elevation request failed: ${response.status}`);
-      return response.arrayBuffer();
-    }),
+    binary('elevation'),
+    binary('ridges'),
     ...roles.map(key => loader.loadAsync(forestAssets[key].url)),
   ]);
   const assets = Object.fromEntries(imports);
@@ -55,24 +64,27 @@ export async function loadValley(scene, mobile) {
     texture.anisotropy = mobile ? 2 : 4;
   }
   textures.sky.mapping = THREE.EquirectangularReflectionMapping;
-  scene.fog = new THREE.Fog('#9eafb4', 39, 97);
-  const sky = makeSky(textures.sky);
+  scene.fog = new THREE.Fog('#a6bec2', 34, 109);
+  const atmosphere = atmosphereUniforms(textures.sky, ridges);
+  const sky = makeSky(atmosphere);
   scene.add(sky);
 
   const shadow = { position: new THREE.Vector3(), forward: new THREE.Vector2(0, -1), lift: 0 };
   const swimmer = new THREE.Vector3();
   const time = { value: 0 };
   const materials = villageMaterials(textures);
+  if (actorShadows) Object.values(materials).forEach(actorShadows.receive);
   const library = new THREE.Group().add(assets.props.scene, assets.valley.scene, assets.dressing.scene, makeStiltHouse(materials));
   library.updateMatrixWorld(true);
   const bridge = importedFootbridge(library.getObjectByName('bridge'));
   const batches = installBatches(scene, library, mobile, time);
-  const wildlife = installWildlife(scene, library, mobile);
-  const life = installVillageLife(scene, assets, assets.dressing.scene, mobile, surfaceAt, heightAt);
-  const landscape = makeLandscape(new Uint8Array(elevation));
-  const terrain = terrainMaterial(textures, shadow, time);
+  const wildlife = installWildlife(scene, library, mobile, time);
+  const life = installVillageLife(scene, assets, assets.dressing.scene, mobile, surfaceAt, heightAt, actorShadows);
+  const landscape = makeLandscape(elevation);
+  const terrain = terrainMaterial(textures, atmosphere, shadow, time, mobile);
+  actorShadows?.receive(terrain);
   const reflection = mobile ? null : riverReflection();
-  const water = waterMaterial(textures.sky, time, swimmer, reflection);
+  const water = waterMaterial(atmosphere, textures.rippleNormal, time, swimmer, reflection);
   const capacity = (DRAW_RADIUS * 2 + 1) ** 2;
   const tiles = new Map();
   const free = [];
@@ -226,8 +238,8 @@ export async function loadValley(scene, mobile) {
 }
 
 export function addValleyLighting(scene, mobile) {
-  scene.add(new THREE.HemisphereLight('#dcefff', '#afa18c', 1.91));
-  const sun = new THREE.DirectionalLight('#ffe8c2', 2.92);
+  scene.add(new THREE.HemisphereLight('#d9edff', '#a6a18e', 2.20));
+  const sun = new THREE.DirectionalLight('#fff0d8', 2.73);
   sun.position.fromArray(SUN_DIRECTION).normalize().multiplyScalar(66);
   sun.castShadow = true;
   sun.shadow.autoUpdate = false;
@@ -235,10 +247,10 @@ export function addValleyLighting(scene, mobile) {
   sun.shadow.mapSize.setScalar(mobile ? 1024 : 1536);
   Object.assign(sun.shadow.camera, { left: -42, right: 42, top: 42, bottom: -42, near: 2, far: 142 });
   sun.shadow.camera.updateProjectionMatrix();
-  sun.shadow.normalBias = 0.09;
+  sun.shadow.normalBias = 0.067;
   sun.shadow.bias = -0.0002;
   sun.shadow.radius = 1.4;
-  sun.shadow.intensity = 0.70;
+  sun.shadow.intensity = 0.75;
   scene.add(sun);
   return sun;
 }
@@ -307,8 +319,8 @@ function tileLayout(tx, tz, heightAt, houses) {
   for (const [role, x, z, scale] of SHORE_PLANTS) {
     if (tileOf(x) !== tx || tileOf(z) !== tz) continue;
     const variant = ROCKS.indexOf(role);
-    const radius = role === 'fig' ? 2.15 : role === 'tree-fern' ? 0.38 : ROCK_RADIUS[variant] ?? 0;
-    const height = role === 'fig' ? 16 : role === 'tree-fern' ? 4.8 : ROCK_HEIGHT[variant] ?? 0;
+    const radius = role === 'fig' || role === 'spruce' ? 2.15 : role === 'tree-fern' ? 0.38 : ROCK_RADIUS[variant] ?? 0;
+    const height = role === 'fig' || role === 'spruce' ? 16 : role === 'tree-fern' ? 4.8 : ROCK_HEIGHT[variant] ?? 0;
     add(role, x, z, scale, undefined, radius, height);
   }
 
@@ -361,6 +373,40 @@ function tileLayout(tx, tz, heightAt, houses) {
     add('lily', x, z, 0.39 + random() * 0.31, undefined, 0, 0, riverLevel(x) + 0.024);
   }
 
+  // Seed patches independently so adding understory does not move any trees or obstacles.
+  for (let i = 0; i < 38; i++) {
+    const x = x0 + (i + hash2(tx * 53 + i, tz + 72)) * CHUNK_SIZE / 38;
+    const width = riverWidth(x);
+    const bank = riverZ(x);
+    const side = i % 2 === 0 ? 1 : -1;
+    const cover = hash2(tx * 13 + i, tz - 103);
+    const z = bank + side * (width + 2.15 + cover * 9.6);
+    if (tileOf(z) !== tz || paddyEdge(x, z) < 0.5) continue;
+    if (i % 3 !== 2 && trailDistance(x, z) > 1.55 && cover > 0.33) add('meadow', x, z, 0.48 + cover * 0.29);
+    for (let j = 0; j < 7; j++) {
+      const shake = hash2(i * 21 + j + tx, tz + j * 165);
+      const px = x + (shake - 0.5) * 2.85;
+      const pz = z + (hash2(i + j * 28, tx + tz + 94) - 0.5) * 2.3;
+      if (trailDistance(px, pz) < 1.10 || waterAt(px, pz) > heightAt(px, pz)) continue;
+      add('grass', px, pz, 0.54 + shake * 1.33);
+    }
+    const bankZ = bank + side * (width + 0.22 + cover * 1.58);
+    if (tileOf(bankZ) === tz && trailDistance(x, bankZ) > 1.18) {
+      add('pebbles', x, bankZ, 0.17 + cover * 0.31);
+    }
+  }
+
+  for (let i = 0; i < 28; i++) {
+    const px = hash2(tx * 47 + i, tz + 39);
+    const pz = hash2(tx + 94, tz * 43 - i);
+    const x = x0 + px * CHUNK_SIZE, z = z0 + pz * CHUNK_SIZE;
+    const fromRiver = Math.abs(z - riverZ(x));
+    if (fromRiver < 31 || fromRiver > 92 || Math.abs(x - villageX) < 3.7 || trailDistance(x, z) < 2.4) continue;
+    const cover = hash2(Math.floor(x / 13), Math.floor(z / 13));
+    if (cover < 0.31 || channelAt(x, z).streamEdge < 4) continue;
+    add('spruce', x, z, 0.31 + cover * 0.28, undefined, 2.1, 12);
+  }
+
   const creek = streamAnchor(x0 + CHUNK_SIZE / 2);
   for (let i = 0; i < 10; i++) {
     const z = z0 + (i + random()) * CHUNK_SIZE / 10;
@@ -388,7 +434,9 @@ function installBatches(scene, library, mobile, time) {
     ['banana', 14, 35, true],
     ['reed', mobile ? 46 : 75, mobile ? 23 : 37, false],
     ['fern', mobile ? 30 : 48, mobile ? 13 : 19, false, 'fern-low', 70, 29],
-    ['grass', mobile ? 100 : 153, mobile ? 11 : 16, false, 'grass-low', 340, mobile ? 23 : 33],
+    ['meadow', mobile ? 27 : 51, mobile ? 19 : 27, false],
+    ['grass', mobile ? 210 : 370, mobile ? 13 : 21, false, 'grass-low', mobile ? 330 : 580, mobile ? 25 : 37],
+    ['pebbles', mobile ? 25 : 53, mobile ? 20 : 31, false],
     ['rice', 6, 47, false],
     ['corn', 8, 48, false],
     ['lily', mobile ? 12 : 21, mobile ? 27 : 45, false],
@@ -413,14 +461,15 @@ function installBatches(scene, library, mobile, time) {
       const material = foliage && !source.isMeshBasicMaterial ? new THREE.MeshLambertMaterial({
         map: source.map, color: source.color.clone().multiplyScalar(1.35), side: source.side,
         alphaTest: source.alphaTest, vertexColors: source.vertexColors,
-      }) : source;
+      }) : name === 'canoe' ? source.clone() : source;
       if (foliage && !mobile) material.alphaToCoverage = true;
       if (foliage && name === 'fig') material.color.multiply(new THREE.Color('#c3c8af'));
-      const wind = ['reed', 'corn'].includes(name);
+      const wind = ['reed', 'corn', 'grass', 'meadow'].includes(name);
+      const floating = name === 'canoe';
       const canopy = name === 'fig' || (foliage && !material.isMeshBasicMaterial
         && ['spruce', 'pine', 'bamboo', 'banana', 'tree-fern'].includes(name));
-      if (wind || canopy) {
-        material.customProgramCacheKey = () => String(Number(wind) + Number(canopy) * 2);
+      if (wind || canopy || floating) {
+        material.customProgramCacheKey = () => String(Number(wind) + Number(canopy) * 2 + Number(floating) * 4);
         material.onBeforeCompile = shader => {
           if (wind) {
             shader.uniforms.clock = time;
@@ -430,6 +479,14 @@ function installBatches(scene, library, mobile, time) {
               float wind = sin(clock * 1.75 + instanceMatrix[3].x * 0.32 + instanceMatrix[3].z * 0.17);
               transformed.x += wind * top * 0.11;
               transformed.z += wind * top * 0.045;
+            `);
+          }
+          if (floating) {
+            shader.uniforms.clock = time;
+            shader.vertexShader = 'uniform float clock;\n' + shader.vertexShader.replace('#include <begin_vertex>', `
+              #include <begin_vertex>
+              float phase = clock * 1.9 + instanceMatrix[3].x * 0.065;
+              transformed.y += sin(phase) * 0.018 + cos(phase * 0.81) * position.z * 0.022;
             `);
           }
           if (canopy) {
@@ -515,14 +572,25 @@ function installBatches(scene, library, mobile, time) {
   });
 }
 
-function installWildlife(scene, library, mobile) {
+function installWildlife(scene, library, mobile, clock) {
   const fish = library.getObjectByName('carp');
   const flock = library.getObjectByName('osprey');
   if (!fish || !flock) return () => {};
   const fishPart = fish.getObjectByProperty('isMesh', true);
   const birdPart = flock.getObjectByProperty('isMesh', true);
-  const fishCount = mobile ? 6 : 12;
-  const school = new THREE.InstancedMesh(fishPart.geometry, fishPart.material, fishCount);
+  const perPool = mobile ? 3 : 5;
+  const fishCount = perPool * 3;
+  const fishMaterial = fishPart.material.clone();
+  fishMaterial.onBeforeCompile = shader => {
+    shader.uniforms.clock = clock;
+    shader.vertexShader = 'uniform float clock;\n' + shader.vertexShader.replace('#include <begin_vertex>', `
+      #include <begin_vertex>
+      float tail = smoothstep(-0.08, 0.97, -position.z);
+      float phase = clock * 10.3 - position.z * 3.8 + instanceMatrix[3].x * 1.7;
+      transformed.x += sin(phase) * tail * tail * 0.22;
+    `);
+  };
+  const school = new THREE.InstancedMesh(fishPart.geometry, fishMaterial, fishCount);
   const birds = new THREE.InstancedMesh(birdPart.geometry, birdPart.material, 2);
   school.name = 'River fish';
   birds.name = 'Osprey';
@@ -538,18 +606,25 @@ function installWildlife(scene, library, mobile) {
     last = time;
     lastX = origin.x;
     lastZ = origin.z;
-    const middle = Math.round(position.x / 16) * 16;
+    const segment = Math.floor(position.x / 16);
     const shore = Math.abs(position.z - riverZ(position.x));
     school.visible = shore < 24;
     birds.visible = shore < 63;
     if (school.visible) {
       for (let i = 0; i < fishCount; i++) {
-        const travel = time * 0.72 + i * 0.89;
-        const x = middle + (i < fishCount / 2 ? -3.4 : 6.1) + Math.sin(travel) * 2.7;
-        const z = riverZ(x) + Math.cos(travel) * 0.81;
-        point.position.set(x - origin.x, riverLevel(x) - 0.45 + 0.12 * Math.sin(travel * 0.6), z - origin.z);
-        point.rotation.set(0, Math.atan2(Math.sin(travel) * 0.81, Math.cos(travel) * 2.7), 0);
-        point.scale.setScalar(0.36 + (i % 4) * 0.058);
+        const pool = segment + Math.floor(i / perPool) - 1;
+        const fishIndex = i % perPool;
+        const seed = hash2(pool, 223);
+        const travel = time * (0.34 + seed * 0.21) + seed * 6.28 + fishIndex * 0.59;
+        const x = pool * 16 + 5.4 + seed * 4.0 + Math.sin(travel) * 2.35;
+        const z = riverZ(x) + Math.cos(travel) * 0.86 + seed - 0.45;
+        const dx = Math.cos(travel) * 2.35;
+        const dz = -Math.sin(travel) * 0.86 + dx * (riverZ(x + 0.5) - riverZ(x - 0.5));
+        const y = riverLevel(x) - 0.32 - fishIndex * 0.039 + 0.075 * Math.sin(travel * 1.47);
+        point.position.set(x - origin.x, y, z - origin.z);
+        point.rotation.set(0.025 * Math.cos(travel * 1.47), Math.atan2(dx, dz), 0.09 * Math.cos(travel));
+        const fade = 1 - THREE.MathUtils.smoothstep(Math.abs(x - position.x), 16, 25);
+        point.scale.setScalar((0.52 + fishIndex * 0.073) * Math.max(0.0001, fade));
         point.updateMatrix();
         school.setMatrixAt(i, matrix.multiplyMatrices(point.matrix, fishPart.matrixWorld));
       }
