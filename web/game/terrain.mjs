@@ -5,7 +5,9 @@ export const CHUNK_SIZE = 48;
 export const CHUNK_SEGMENTS = 32;
 export const TERRAIN_STEP = CHUNK_SIZE / CHUNK_SEGMENTS;
 export const SPAWN = { x: 0, z: 5.6 };
-export const SUN_DIRECTION = [0.64, 0.69, 0.32];
+export const SUN_DIRECTION = [-0.57, 0.53, 0.58];
+export const VILLAGE_SPACING = 192;
+export const PADDY = { x: -13.7, halfWidth: 3.95, bankOffset: 3.67, halfDepth: 1.82 };
 
 const STREAM_SPACING = 240;
 
@@ -85,9 +87,18 @@ export function trailDistance(x, z) {
   const run = z - riverZ(x);
   const bend = Math.sin(run / 13) * 1.35 + Math.sign(run) * smooth(12, 43, Math.abs(run))
     * (6.7 + 3.7 * Math.sin(run / 18));
-  const crossing = Math.abs(x - Math.round(x / 192) * 192 + bend) + smooth(29, 67, Math.abs(run)) * 2.3;
+  const crossing = Math.abs(x - Math.round(x / VILLAGE_SPACING) * VILLAGE_SPACING + bend)
+    + smooth(29, 67, Math.abs(run)) * 2.3;
   const upland = Math.abs(z - 40 - 13 * Math.sin(x / 43));
   return Math.min(bank, crossing, upland);
+}
+
+export function paddyEdge(x, z) {
+  const local = x - Math.round(x / VILLAGE_SPACING) * VILLAGE_SPACING;
+  const edge = Math.abs(local - PADDY.x) - PADDY.halfWidth;
+  if (edge > 1) return edge;
+  const north = riverZ(x) - z - riverWidth(x);
+  return Math.max(edge, Math.abs(north - PADDY.bankOffset) - PADDY.halfDepth);
 }
 
 function triangle(a, b, c, d, u, v) {
@@ -122,7 +133,8 @@ export function makeLandscape(samples) {
     const ridges = noise(x / 33 + 4, z / 33 + 17);
     const folds = noise(x / 13, z / 13);
     const rise = smooth(14, 75, distance);
-    const village = (1 - smooth(20, 38, Math.abs(x - Math.round(x / 192) * 192))) * (1 - smooth(18, 33, distance));
+    const village = (1 - smooth(20, 38, Math.abs(x - Math.round(x / VILLAGE_SPACING) * VILLAGE_SPACING)))
+      * (1 - smooth(18, 33, distance));
     const nearBanks = 0.86 + (folds - 0.5) * 0.59 + plateau * 1.15;
     const hills = rise * (4.5 + plateau ** 2 * 13.5 + ridges * 5 + folds * 2.4);
     const sampleBlend = 1 - smooth(24, 44, Math.max(Math.abs(x), Math.abs(z)));
@@ -132,7 +144,12 @@ export function makeLandscape(samples) {
     const bank = river + wild + (clearing - wild) * village * 0.94;
     const bed = river - 1.06 - 0.24 * Math.sin(x / 12) - 0.12 * folds;
     const riverMix = smooth(-1.18, 2.7, riverEdge);
-    const ground = bed + (bank - bed) * riverMix;
+    const paddy = paddyEdge(x, z);
+    let ground = bed + (bank - bed) * riverMix;
+    if (paddy < 0.84) {
+      const bund = 0.31 * Math.exp(-Math.pow(paddy / 0.39, 2));
+      ground += (river + 0.57 + bund - ground) * (1 - smooth(-0.48, 0.84, paddy));
+    }
     if (streamEdge > 3.7) return ground;
     const creek = streamLevel(z, anchor) - 0.78 - folds * 0.10;
     const streamMix = smooth(-0.38, 3.7, streamEdge);

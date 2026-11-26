@@ -3,6 +3,7 @@ import { loadDog } from './assets.mjs';
 import { cameraReach, damping, integrateVelocity, moveInWorld, movementIntent, turnTo, updateStamina } from './physics.mjs';
 import { SPAWN } from './terrain.mjs';
 import { addValleyLighting, loadValley } from './world.mjs';
+import { WATER_LAYER } from './river-reflection.mjs';
 
 const STEP = 1 / 60;
 const PLAY_INTERVAL = STEP * 1000;
@@ -45,6 +46,7 @@ export class Pawtown {
     this.renderer.shadowMap.needsUpdate = true;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(51, 1, 0.07, 129);
+    this.camera.layers.enable(WATER_LAYER);
     this.sun = addValleyLighting(this.scene, this.mobile);
 
     this.bindInput();
@@ -268,13 +270,13 @@ export class Pawtown {
       this.cameraTarget.set(position.x, position.y + height * 0.80, position.z);
       this.cameraOffset.set(Math.sin(this.cameraYaw) * distance, Math.sin(pitch) * range,
         Math.cos(this.cameraYaw) * distance);
-      const { heightAt, colliders } = this.world;
-      let reach = cameraReach(this.cameraTarget, this.cameraOffset, heightAt, colliders);
+      const { heightAt, cameraColliders } = this.world;
+      let reach = cameraReach(this.cameraTarget, this.cameraOffset, heightAt, cameraColliders);
       if (reach * range < 1.25) {
         for (const yaw of [-0.62, 0.62, -1.15, 1.15]) {
           this.cameraAlternative.set(Math.sin(this.cameraYaw + yaw) * distance, this.cameraOffset.y,
             Math.cos(this.cameraYaw + yaw) * distance);
-          const alternative = cameraReach(this.cameraTarget, this.cameraAlternative, heightAt, colliders);
+          const alternative = cameraReach(this.cameraTarget, this.cameraAlternative, heightAt, cameraColliders);
           if (alternative > reach) {
             reach = alternative;
             this.cameraOffset.copy(this.cameraAlternative);
@@ -344,6 +346,7 @@ export class Pawtown {
       this.grounded && this.waterDepth > 0.18);
     this.camera.position.sub(origin);
     sky.position.copy(this.camera.position);
+    this.world.reflect(this.renderer, this.camera, this.quality);
     this.invalidated = false;
     this.renderer.render(this.scene, this.camera);
   }

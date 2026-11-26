@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { forestAssets } from '../web/game/forest-assets.mjs';
 import { cameraReach, movementIntent, moveInWorld, integrateVelocity, turnTo,
   updateStamina } from '../web/game/physics.mjs';
 import {
   CHUNK_SIZE, SPAWN, TERRAIN_GRID, TERRAIN_HALF, chunkWindow, makeLandscape, riverZ, streamX, terrainSampler, waterAt,
 } from '../web/game/terrain.mjs';
-import { HOUSE, crossingHeight, houseColliders, villageForChunk, villageSupport } from '../web/game/village.mjs';
+import { HOUSE, crossingCameraColliders, crossingHeight, houseColliders, villageForChunk, villageSupport } from '../web/game/village.mjs';
 
 test('movement remains relative to the camera and diagonal movement is normalized', () => {
   const forward = movementIntent({ x: 0, z: 1 }, 0);
@@ -94,6 +96,24 @@ test('the bridge and house stairs are walkable without lifting a dog beneath the
   assert.ok(Math.abs(below.z - (house.z - 3)) < 1e-9);
 });
 
+test('the new rice bed leaves the northwest stilt house stairs reachable from the bank', async () => {
+  const samples = await readFile(new URL('../public' + forestAssets.elevation.url, import.meta.url));
+  const { heightAt } = makeLandscape(samples);
+  const { houses } = villageForChunk(-1, -1, heightAt);
+  const house = houses.find(({ x, yaw }) => x > -15 && Math.cos(yaw) > 0);
+  assert.ok(house);
+
+  const bottom = HOUSE.porch + HOUSE.stairRun;
+  let floor = house.y;
+  for (let step = 0; step <= 27; step++) {
+    const along = bottom + 0.35 - step * 0.10;
+    const x = house.x + house.sin * along * house.scale;
+    const z = house.z + house.cos * along * house.scale;
+    floor = Math.max(heightAt(x, z), villageSupport(x, z, floor + 0.34, houses, []));
+  }
+  assert.ok(floor > house.y + HOUSE.floor * house.scale * 0.95);
+});
+
 test('the chase camera shortens its boom for foliage and rising ground', () => {
   const target = { x: 0, y: 0.52, z: 0 };
   const offset = { x: 0, y: 1, z: 5 };
@@ -102,6 +122,14 @@ test('the chase camera shortens its boom for foliage and rising ground', () => {
   assert.ok(cameraReach(target, offset, flat, [branch]) < 0.5);
   assert.equal(cameraReach(target, offset, flat, [{ ...branch, height: 0.1 }]), 1);
   assert.ok(cameraReach(target, offset, (x, z) => z > 2.8 ? 1.2 : 0, []) < 0.65);
+});
+
+test('the chase camera avoids the wood deck and side rail when orbiting from the bank', () => {
+  const flat = () => 0;
+  const { crossings: [bridge] } = villageForChunk(0, -1, flat);
+  const target = { x: -2.1, y: bridge.deck + 0.25, z: bridge.z - 4 };
+  const offset = { x: 4.6, y: 0.4, z: 0 };
+  assert.ok(cameraReach(target, offset, flat, crossingCameraColliders(bridge)) < 0.34);
 });
 
 test('the elevation sampler follows the terrain mesh triangles', () => {

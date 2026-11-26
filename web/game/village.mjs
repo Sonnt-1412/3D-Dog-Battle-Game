@@ -1,9 +1,8 @@
-import { CHUNK_SIZE, clamp, riverLevel, riverWidth, riverZ, smooth, streamLevel, streamX } from './terrain.mjs';
+import { CHUNK_SIZE, VILLAGE_SPACING, clamp, riverLevel, riverWidth, riverZ, smooth, streamLevel, streamX } from './terrain.mjs';
 
 export const HOUSE = {
   width: 9.5, depth: 5.5, porch: 3.75, floor: 1.54, stairWidth: 1.55, stairRun: 2.42,
 };
-const VILLAGE_SPACING = 192;
 const HOME_HOUSES = [
   [-8.6, -10.7, 1.12, 0.14], [8.3, -10.5, 0.94, -0.17],
   [17.9, -12.1, 0.84, -0.24], [-18.5, 10.6, 0.94, 2.64], [12.2, 10.8, 0.87, 0.35],
@@ -65,6 +64,27 @@ export function crossingHeight(bridge, along) {
   return bridge.deck + (end - bridge.deck) * amount;
 }
 
+export function crossingCameraColliders(bridge) {
+  const { halfWidth, halfLength, deck, ramp, north, south, transverse } = bridge;
+  const cos = transverse ? 0 : 1;
+  const sin = transverse ? 1 : 0;
+  const span = halfLength - ramp;
+  const box = (across, along, halfX, halfZ, y, top) => ({
+    x: bridge.x + across * cos + along * sin,
+    z: bridge.z - across * sin + along * cos,
+    y, height: top - y, halfX, halfZ, cos, sin, radius: Math.hypot(halfX, halfZ),
+  });
+  const rampCenter = span + ramp / 2;
+  const rail = halfWidth * 0.95;
+  return [
+    box(0, 0, halfWidth * 1.05, span, deck - 0.17, deck),
+    box(0, -rampCenter, halfWidth * 1.05, ramp / 2, Math.min(north, deck) - 0.17, deck),
+    box(0, rampCenter, halfWidth * 1.05, ramp / 2, Math.min(south, deck) - 0.17, deck),
+    box(-rail, 0, 0.095, span, deck - 0.39, deck + 0.91),
+    box(rail, 0, 0.095, span, deck - 0.39, deck + 0.91),
+  ];
+}
+
 export function villageSupport(x, z, maxHeight, houses, crossings) {
   let support = -Infinity;
   for (const house of houses) {
@@ -93,16 +113,29 @@ export function villageSupport(x, z, maxHeight, houses, crossings) {
   return support;
 }
 
-export function houseColliders(house) {
+function houseBox(house, lx, lz, halfX, halfZ, floor, height) {
   const { x, z, y, scale, cos, sin } = house;
-  const result = [];
-  const shape = (lx, lz, halfX, halfZ, floor, height) => {
-    result.push({
-      x: x + scale * (lx * cos + lz * sin), z: z + scale * (-lx * sin + lz * cos),
-      y: y + scale * floor, height: scale * height, halfX: scale * halfX, halfZ: scale * halfZ,
-      cos, sin, radius: scale * Math.hypot(halfX, halfZ),
-    });
+  return {
+    x: x + scale * (lx * cos + lz * sin), z: z + scale * (-lx * sin + lz * cos),
+    y: y + scale * floor, height: scale * height, halfX: scale * halfX, halfZ: scale * halfZ,
+    cos, sin, radius: scale * Math.hypot(halfX, halfZ),
   };
+}
+
+export function stairCameraColliders(house) {
+  const spans = 4;
+  const length = HOUSE.stairRun / spans;
+  return Array.from({ length: spans }, (_, i) => {
+    const along = HOUSE.porch + (i + 0.5) * length;
+    const bottom = HOUSE.floor * (1 - (i + 1) / spans) - 0.21;
+    return houseBox(house, 0, along, HOUSE.stairWidth / 2 + 0.075, length / 2, bottom,
+      HOUSE.floor / spans + 0.95);
+  });
+}
+
+export function houseColliders(house) {
+  const result = [];
+  const shape = (...dimensions) => result.push(houseBox(house, ...dimensions));
 
   for (const lx of [-4.25, -1.45, 1.45, 4.25]) {
     for (const lz of [-2.38, 2.43]) shape(lx, lz, 0.14, 0.14, -0.74, 3.25);
